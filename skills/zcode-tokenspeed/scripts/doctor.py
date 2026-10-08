@@ -829,7 +829,8 @@ def auto_fix() -> int:
         print(f"[*] ZCode 未运行，开始直接注入全部补丁...")
         try:
             r = subprocess.run([sys.executable, str(PATCHER), "--all"],
-                               cwd=str(HERE), capture_output=True, encoding="utf-8", errors="replace")
+                               cwd=str(HERE), capture_output=True, encoding="utf-8", errors="replace",
+                               **no_window_kwargs())
             print((r.stdout or "") + (r.stderr or ""))
             if r.returncode == 0:
                 fixed_items.append("全量补丁注入完成 (zcode_patcher.py --all)")

@@ -603,6 +603,9 @@ def first_auto_inject() -> bool:
         return False
 
 
+NOTICE_HEAD = "ZCode Patcher 已自动接管本地补丁注入（无需手动配置）"
+
+
 def build_notice(is_upgrade: bool = False, version: str = "") -> str:
     """自动注入时注入会话的说明（区分首次安装与客户端升级）。"""
     doctor = HERE / "doctor.py"
