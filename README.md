@@ -1,54 +1,61 @@
-# zcode-tokenspeed · ZCode 客户端增强插件
+# zcode-tokenspeed · ZCode 客户端一站式原生增强套件
 
-给 ZCode 桌面客户端补上几件顺手的事：**思考档位配置**、**用量页图表不再截断**、**模型弹窗加宽**、
-**实时 TPS 统计条**、**思考强度滑条**、**一键增强提示词**（右键可选模型）、**设置页一键拉取模型**。
+<p align="left">
+  <a href="https://github.com/c80361619/zcode-toolkit/releases"><img src="https://img.shields.io/badge/version-0.6.11-blue.svg?style=flat-square" alt="Version"></a>
+  <img src="https://img.shields.io/badge/python-3.10+-3776AB.svg?style=flat-square&logo=python&logoColor=white" alt="Python">
+  <img src="https://img.shields.io/badge/dependencies-0%20(std%20only)-success.svg?style=flat-square" alt="Dependencies">
+  <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg?style=flat-square" alt="Platform">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-green.svg?style=flat-square" alt="License"></a>
+</p>
 
-纯 Python 标准库，零依赖、免编译；只改**本地已安装的客户端文件**，幂等、可 `--check` 核查、
-可 `--revert` 精确还原、可逐项开关。
+为 ZCode 桌面客户端补齐极致原生体验与生产力增强：
+- 📊 **实时 TPS 与性能状态栏**：首 Token 延迟、tok/s 生成速度、Token 统计与会话命中率常驻展示。
+- 🎚️ **思考强度悬浮滑条**：免去繁琐配置，直接在界面流畅拖拽调节 Reasoning Effort，原生即时生效。
+- ✨ **提示词智能增强**：输入框旁一键重写润色草稿；**右键自由选择**润色所用模型，支持一键恢复。
+- 📈 **用量图表全量展开**：破除官方 Top 5/6 截断限制，全量展示所有模型的调用趋势与占比。
+- 🔍 **模型选择浮窗加宽**：选择框 192px 扩大至 320px，长模型名完整展示不再被省略号截断。
+- ⚡ **一键模型同步**：设置页一键获取供应商 `/models` 模型列表，勾选即刻自动建条目并写入。
+- 🛡️ **无感自愈看护（v0.6.11 新特性）**：自动感知客户端与插件升级，后台看护自愈守护，**彻底告别“客户端一升级补丁就失效”！**
 
-> **非官方项目**，与 ZCode 官方无关，使用后果自负；第三方声明见 [NOTICE.md](NOTICE.md)。
-> 仓库名 `zcode-toolkit` ≠ 插件名 **`zcode-tokenspeed`**（配置键与安装目录都用后者）——故意不同，改 id 会让老用户开关失效。
-
----
-
-## 三分钟装好（速览）
-
-| 步骤 | 做什么 |
-|---|---|
-| 1 | 确认装了 **Python 3.10+**（`python --version`；macOS / Linux 用 `python3 --version`）和 **ZCode 桌面客户端** |
-| 2 | ZCode 里打开 **设置 → 插件 → 右上角「创建」→「添加插件市场」**，来源填 `c80361619/zcode-toolkit` |
-| 3 | 在「个人」分段找到 **ZCode Patcher**，点 **安装**（装好后默认启用，**保持启用**） |
-| 4 | **完全退出并重启 ZCode**（托盘右键退出，关窗口不算），然后**开一个会话 / 发一条消息** —— 钩子在这一刻登记「期望状态」 |
-| 5 | **再退出一次 ZCode** —— 看护进程在这一刻把补丁真正写进客户端，**并自动把 ZCode 重新拉起来**；下次启动即可见 |
-
-> **装完即用，不需要打开配置页，也不需要跑任何命令。** 插件清单里每个开关的默认值都是 `true`，
-> 钩子按默认值登记期望状态，ZCode 退出时由看护写入；想关掉某个功能，到配置里拨成关并保存即可
-> （保存值优先于默认值）。原理与边界见 [自动注入](#自动注入触发时机作用范围与兜底)。
+> **纯 Python 标准库驱动**，零第三方依赖、免编译；所有修改只作用于**本地客户端文件**；  
+> 全量操作严格幂等，支持 `--check` 状态核查、`--revert` 逐项/全量精确还原。
 >
-> **为什么八项都要等退出**：`zcode_patcher.py` 的运行预检是**全局**的 —— 只要 `tasklist` 里还有
-> `ZCode.exe` 就拒绝写入（app.asar 被锁、`config.json` / `provider_config.json` 会被客户端回写覆盖），
-> 而会话钩子**必然**在 ZCode 运行中触发。所以插件统一走「钩子登记期望状态 → ZCode 退出时由看护写入
-> → 自动重启 ZCode」这一条链路（`sync.py` 仍会先试一次立即写，被拒才转交看护，纯 CLI 场景下可即时生效）。
-> 拿不准卡在哪一步，别猜 —— 跑一次自检就能定位：[装了没生效？先跑自检](#装了没生效先跑自检)。
-
-只想用命令行、不装插件？跳到 [方式 C](#方式-c只用命令行不装插件)。
-想一条命令跑完自检 + 构建 + 测试？用 [方式 D](#方式-d一键引导脚本跨平台推荐给开发者)。
-想完全无人值守、连部署都自动排期？用 [方式 E](#方式-e全自动流水线无人值守ci-与一键发布用)。
+> ⚠️ **声明**：本项目为非官方开源增强套件，与 ZCode 官方团队无关联。第三方声明详见 [NOTICE.md](NOTICE.md)。  
+> （仓库名 `zcode-toolkit` ≠ 插件注册名 **`zcode-tokenspeed`**，二者保持独立设计以保障兼容性）。
 
 ---
 
-## 功能一览
+## ⚡ 三分钟极速上手
 
-| # | 功能 | 效果 | 命令 | 改动位置 |
-|---|------|------|------|---------|
-| 1 | **思考档位配置** | 把各模型已配的档位写进 `provider_config.json` 的 `optionSpecs`——界面档位列表与请求体参数都由它下发（3.14+ 原生机制，**无需内核补丁**） | `--reasoning-config` | `~/.zcode/v2/provider_config.json` |
-| 2 | **思考等级透传** | ≤3.11 内核的档位兜底补丁（3.14+ 已不需要，脚本会明确提示） | 无参数 | 内核 `zcode.cjs` |
-| 3 | **用量页去截断** | 「设置 → 用量」趋势图不再只画 Top 6、饼图不再只画 Top 5 + 「其他模型」 | `--usage-chart` | `app.asar` 渲染文件 |
-| 4 | **模型弹窗加宽** | 模型选择浮窗 192px → 320px，长模型名不再被截断 | `--model-width` | `app.asar` 主 bundle |
-| 5 | **TPS 状态栏** | 输入框下方常驻统计条：本轮（首 token / tok/s / out）+ 会话累计（轮数 / 输入 / 命中率 / 累出），空会话空态常驻，右键可切位置 | `--tps-footer` | `app.asar` 注入脚本 |
-| 6 | **思考强度滑条** | 工具栏「思考 · 档名」入口，点击弹出吸附拖拽条（进度条样式随应用主题自适应，加载/拖拽/完成/静止四态反馈），拖完走原生链路即时生效 | `--thought-slider` | `app.asar` 注入脚本 |
-| 7 | **增强提示词** | 输入框旁「增强提示词」按钮：一键把草稿改写得更清晰具体，可「恢复原文」；**右键**可按供应商分组选择用哪个模型润色（选中即持久化，零重启生效） | `--enhance-prompt` | `app.asar` 注入脚本 + IPC 桥 |
-| 8 | **模型拉取按钮** | 设置页「⚡️ 自动拉取模型」：拉取供应商 `/models`、勾选即写入，新供应商一步到位（自动建条目） | `--model-puller` | `app.asar` 注入脚本 + IPC 桥 |
+| 步骤 | 操作说明 |
+|:---:|---|
+| **1. 准备环境** | 确认已安装 **Python 3.10+**（终端运行 `python --version`）及 **ZCode 桌面客户端** |
+| **2. 添加市场** | 打开 ZCode **设置 → 插件 → 右上角「创建」→「添加插件市场」**，来源填：<br>`c80361619/zcode-toolkit` |
+| **3. 安装插件** | 在「个人」分段中找到 **ZCode 原生体验增强**（`ZCode Patcher`），点击 **安装**（默认自动启用） |
+| **4. 自动激活** | **完全退出并重启 ZCode**（托盘右键退出，关窗口不算），在任意会话发一条消息即可触发后台看护并自动注入；下次启动即可享受全部增强特性！ |
+
+> 💡 **无需手写任何配置**：安装即默认启用所有推荐特性。若想关闭某项功能，直接在插件配置页调整开关并保存即可。
+>
+> 🛠️ **一键自愈与诊断**：升级客户端或遇到异常时，无需重装，运行内置自愈命令即可一秒修复：
+> ```bash
+> python skills/zcode-tokenspeed/scripts/doctor.py --fix
+> ```
+
+---
+
+## 🧩 核心功能与特性矩阵
+
+| 特性 | 功能名称 | 核心效果 | 对应 CLI 参数 | 改动位置 |
+|:---:|:---|:---|:---:|:---|
+| 🛡️ | **升级自动自愈** | 动态监控客户端与插件版本，升级后自动清除旧标记、单例看护静默修复 | `doctor.py --fix` | 状态监控器 |
+| 📊 | **实时 TPS 状态栏** | 输入框常驻：本轮指标（首 token / tok/s / out）+ 会话累计，右键自由切换位置 | `--tps-footer` | `app.asar` 注入脚本 |
+| 🎚️ | **思考强度滑条** | 工具栏「思考 · 档名」入口，悬浮拖拽条吸附微调，主题自适应，原生链路即时生效 | `--thought-slider` | `app.asar` 注入脚本 |
+| ✨ | **提示词增强润色** | 输入框旁「增强提示词」按钮，右键支持按供应商自选润色模型，持久化且免重启 | `--enhance-prompt` | `app.asar` 注入脚本 + IPC |
+| 📈 | **用量图表去截断** | 「设置 → 用量」趋势图与饼图不再被 Top 5 / Top 6 截断，全量展示所有模型 | `--usage-chart` | `app.asar` 渲染层 |
+| 🔍 | **模型弹窗加宽** | 模型下拉列表宽度由 192px 扩展至 320px，超长模型名完整展示 | `--model-width` | `app.asar` 主 bundle |
+| ⚡ | **设置页模型拉取** | 设置页新增「⚡ 自动拉取模型」按钮，自动从供应商同步可用模型并批量写入 | `--model-puller` | `app.asar` 注入脚本 + IPC |
+| 🧠 | **思考档位原生配置** | 为各模型配置 `provider_config.json` 档位（3.14+ 原生 optionSpecs，无需内核改动） | `--reasoning-config`| 用户配置 JSON |
+| ⚙️ | **思考内核补丁（旧版）** | ≤3.11 旧版内核专用兜底方案（3.14+ 自动识别并跳过，安全无侵入） | 内核补丁 | `zcode.cjs` |
 
 命令行版拉模型（不动客户端文件，直接同步配置）：
 
@@ -632,8 +639,10 @@ python skills/zcode-tokenspeed/scripts/doctor.py      # macOS / Linux 用 python
 已经在仓库里，或者想直接跑**已安装的那份副本**，先问一下它装在哪：
 
 ```bash
-python skills/zcode-tokenspeed/scripts/doctor.py --where       # 只打印命中路径 + 可复制的命令
-python skills/zcode-tokenspeed/scripts/doctor.py --where-all   # 连扫过的全部候选目录一起列
+python skills/zcode-tokenspeed/scripts/doctor.py           # 诊断整条链路并生成体检报告
+python skills/zcode-tokenspeed/scripts/doctor.py --fix     # 一键自愈：修复插件启用状态并补齐全部补丁
+python skills/zcode-tokenspeed/scripts/doctor.py --where   # 只打印命中路径 + 可复制的命令
+python skills/zcode-tokenspeed/scripts/doctor.py --where-all # 连扫过的全部候选目录一起列
 ```
 
 `--where` 的输出长这样（默认只列命中项，不淹没在别人的插件里）：
@@ -860,7 +869,7 @@ skills/zcode-tokenspeed/
   SKILL.md                                    执行流程 + 逆向笔记 + 排障（AI 代执行入口）
   scripts/
     zcode_patcher.py                          主工具：八个补丁
-    doctor.py                                 安装自检：一条命令诊断「为什么没生效」（--where 查安装位置）
+    doctor.py                                 安装自检与自愈：诊断链路卡点；加 --fix 一键自动修复并补齐补丁
     _console.py                               控制台编码安全网（中文 Windows 管道里不能直接打 ✓）
     zcode-tps.js                              TPS 状态栏注入脚本（ServicePort 事件流）
     zcode-thought-slider.js                   思考强度滑条注入脚本
