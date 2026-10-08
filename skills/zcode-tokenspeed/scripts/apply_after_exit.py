@@ -203,7 +203,7 @@ def main() -> int:
         pass
     _save_wants(sys.argv[1:])
 
-    log(f"看护启动 (PID {cur_pid})，等待 ZCode 退出…")
+    log(f"看护启动，等待 ZCode 退出 (PID {cur_pid})…")
     waited = 0
     while zcode_running():
         time.sleep(POLL_SEC)

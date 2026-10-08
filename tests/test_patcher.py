@@ -3968,9 +3968,11 @@ class TestAutopilotCli(unittest.TestCase):
         cls.ap, cls._path = _load_autopilot()
 
     def _run(self, *args, timeout=180):
+        env = {**os.environ, "PYTHONIOENCODING": "utf-8"}
         p = subprocess.run([sys.executable, str(self._path), *args],
                            cwd=str(self._path.parent),
                            capture_output=True, errors="replace",
+                           env=env,
                            encoding="utf-8", timeout=timeout)
         return p.returncode, (p.stdout or "") + (p.stderr or "")
 
