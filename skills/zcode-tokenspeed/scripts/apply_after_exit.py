@@ -26,6 +26,8 @@ except ImportError:                    # 被别处 import 时脚本目录可能�
 
 HERE = Path(__file__).resolve().parent
 LOG = HERE / "_apply_after_exit.log"
+PID_FILE = HERE / "_watchdog.pid"
+WANT_FILE = HERE / "_watchdog.want"
 POLL_SEC = 3
 MAX_WAIT_SEC = 24 * 3600
 PYTHON = sys.executable or "python"
@@ -39,6 +41,35 @@ PATCH_TIMEOUT = 600
 def log(msg: str) -> None:
     with open(LOG, "a", encoding="utf-8") as f:
         f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] {msg}\n")
+
+
+def is_pid_alive(pid: int) -> bool:
+    """检查指定 PID 进程是否仍在存活运行。"""
+    if pid <= 0:
+        return False
+    if sys.platform == "win32":
+        try:
+            import ctypes
+            PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+            SYNCHRONIZE = 0x00100000
+            h = ctypes.windll.kernel32.OpenProcess(
+                PROCESS_QUERY_LIMITED_INFORMATION | SYNCHRONIZE, False, pid
+            )
+            if not h:
+                return False
+            exit_code = ctypes.c_ulong()
+            ctypes.windll.kernel32.GetExitCodeProcess(h, ctypes.byref(exit_code))
+            ctypes.windll.kernel32.CloseHandle(h)
+            return exit_code.value == 259  # STILL_ACTIVE
+        except Exception:
+            return False
+    else:
+        try:
+            import os
+            os.kill(pid, 0)
+            return True
+        except OSError:
+            return False
 
 
 def zcode_running() -> bool:
@@ -85,35 +116,101 @@ PATCH_ARGS = {
     "model_puller": ["--model-puller"],
     "core_patch": [],
 }
-# 未收到 --want 时的默认动作（本地计划任务用）：档位配置 + 三个重打包级补丁
-DEFAULT_TASKS = [["--reasoning-config"], ["--tps-footer"], ["--thought-slider"], ["--model-puller"]]
+# 未收到 --want 时的默认动作（本地计划任务用）：全量 7 项补丁按序全部应用
+DEFAULT_TASKS = [
+    ["--reasoning-config"],
+    ["--usage-chart"],
+    ["--model-width"],
+    ["--tps-footer"],
+    ["--thought-slider"],
+    ["--enhance-prompt"],
+    ["--model-puller"],
+]
+
+
+def _save_wants(argv: list[str]) -> None:
+    """把传入的 --want 参数与已存的合并并写入 WANT_FILE。"""
+    wants_dict = {}
+    if WANT_FILE.is_file():
+        try:
+            import json
+            wants_dict = json.loads(WANT_FILE.read_text(encoding="utf-8"))
+        except Exception:
+            wants_dict = {}
+    for a in argv:
+        if a.startswith("--want="):
+            key, _, val = a[len("--want="):].partition("=")
+            key = key.strip()
+            if key in PATCH_ARGS:
+                wants_dict[key] = val.strip().lower() not in ("off", "false", "0", "no")
+    if wants_dict:
+        try:
+            import json
+            WANT_FILE.write_text(json.dumps(wants_dict, ensure_ascii=False), encoding="utf-8")
+        except Exception:
+            pass
 
 
 def parse_wants(argv: list[str]):
-    """解析 sync.py 传入的 --want=<key>=on|off。
-    返回 [(args, revert), ...]；没有任何 --want 时返回 None（走 DEFAULT_TASKS）。
-    历史问题：早期版本忽略 --want，一律按"全部打开"处理 —— 于是把开关关掉并不会真正还原。"""
-    tasks = []
+    """解析 sync.py 传入的 --want=<key>=on|off 或 WANT_FILE。
+    返回 [(args, revert), ...]；没有任何 --want 时返回 None（走 DEFAULT_TASKS）。"""
+    merged_wants = {}
+    if WANT_FILE.is_file():
+        try:
+            import json
+            merged_wants = json.loads(WANT_FILE.read_text(encoding="utf-8"))
+        except Exception:
+            pass
     for a in argv:
-        if not a.startswith("--want="):
-            continue
-        key, _, val = a[len("--want="):].partition("=")
-        key = key.strip()
-        if key not in PATCH_ARGS:
-            log(f"忽略未知开关: {a}")
-            continue
-        tasks.append((PATCH_ARGS[key], val.strip().lower() in ("off", "false", "0", "no")))
+        if a.startswith("--want="):
+            key, _, val = a[len("--want="):].partition("=")
+            key = key.strip()
+            if key in PATCH_ARGS:
+                merged_wants[key] = val.strip().lower() not in ("off", "false", "0", "no")
+
+    if not merged_wants:
+        return None
+    tasks = []
+    for key, enabled in merged_wants.items():
+        tasks.append((PATCH_ARGS[key], not enabled))
     return tasks or None
 
 
+def _cleanup_singletons(cur_pid: int) -> None:
+    try:
+        if PID_FILE.is_file() and PID_FILE.read_text(encoding="utf-8").strip() == str(cur_pid):
+            PID_FILE.unlink(missing_ok=True)
+        WANT_FILE.unlink(missing_ok=True)
+    except Exception:
+        pass
+
+
 def main() -> int:
-    log("看护启动，等待 ZCode 退出…")
+    import os
+    cur_pid = os.getpid()
+    if PID_FILE.is_file():
+        try:
+            old_pid = int(PID_FILE.read_text(encoding="utf-8").strip())
+            if old_pid != cur_pid and is_pid_alive(old_pid):
+                log(f"已有活跃看护运行中 (PID {old_pid})，已登记最新需求，本实例退出")
+                _save_wants(sys.argv[1:])
+                return 0
+        except Exception:
+            pass
+    try:
+        PID_FILE.write_text(str(cur_pid), encoding="utf-8")
+    except Exception:
+        pass
+    _save_wants(sys.argv[1:])
+
+    log(f"看护启动 (PID {cur_pid})，等待 ZCode 退出…")
     waited = 0
     while zcode_running():
         time.sleep(POLL_SEC)
         waited += POLL_SEC
         if waited >= MAX_WAIT_SEC:
             log("等待超时（24h），放弃")
+            _cleanup_singletons(cur_pid)
             return 1
 
     tasks = parse_wants(sys.argv[1:])
@@ -137,11 +234,13 @@ def main() -> int:
         log(f"$ zcode_patcher.py {' '.join(cmd[2:])}  [exit={r.returncode}]\n{out}".rstrip())
         if r.returncode == 2:
             log("预检未通过（ZCode 在等待期间被重新拉起），本次放弃，不重启")
+            _cleanup_singletons(cur_pid)
             return 1
         if r.returncode != 0:
             failed += 1
 
     res, exe = resolve_install()
+    _cleanup_singletons(cur_pid)
     if exe is None:
         log("未找到 ZCode.exe（可用主脚本探测确认安装位置），请手动启动")
         return 1

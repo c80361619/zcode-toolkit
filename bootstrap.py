@@ -43,6 +43,13 @@ HERE = Path(__file__).resolve().parent          # 仓库根 = 本脚本所在目
 SCRIPTS = HERE / "skills" / "zcode-tokenspeed" / "scripts"
 TESTS = HERE / "tests"
 
+try:
+    sys.path.insert(0, str(SCRIPTS))
+    from _console import safe_stdio
+    safe_stdio()
+except Exception:
+    pass
+
 PY_MIN = (3, 10)                                 # README 声明的 Python 下限
 REQUIRED_PY_FILES = [                            # 「构建」要过语法关的 Python 源文件
     SCRIPTS / "zcode_patcher.py",
@@ -428,8 +435,13 @@ def step_test(args) -> None:
     if args.dry_run:
         return
     tail = out.rstrip().splitlines()[-6:]
+    enc = getattr(sys.stdout, "encoding", None) or "utf-8"
     for line in tail:
-        print(f"    {line}")
+        try:
+            print(f"    {line}")
+        except UnicodeEncodeError:
+            safe_line = line.encode(enc, errors="replace").decode(enc, errors="replace")
+            print(f"    {safe_line}")
     if rc != 0:
         fail("回归测试未通过 —— 本次「构建」视为失败，请先修掉上面的用例。")
         raise SystemExit(1)

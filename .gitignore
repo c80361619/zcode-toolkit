@@ -2,6 +2,9 @@
 _sync.log
 _sync.last
 _watchdog.pid
+_watchdog.want
+_client_fingerprint.json
+_autoinject.done
 _apply_after_exit.log
 apply_after_exit.log
 __pycache__/

@@ -763,9 +763,7 @@ python skills/zcode-tokenspeed/scripts/zcode_patcher.py --all          # 一次�
 | 插件页「检查更新」一直不提示新版本 | 本项目的发版口径：`marketplace.json` 与 `plugin.json` 的 `version` 必须同步，见 [开发与发版](#开发与发版) |
 | 打补丁提示「请完全退出 ZCode」 | 托盘右键退出（关窗口不算），再重跑 |
 | 打补丁提示「拒绝访问 / Permission denied」 | 用管理员（Windows）或 `sudo`（macOS / Linux）重跑 |
-| 找不到 ZCode 安装 | 把安装根目录作为参数传入，加 `--verbose` 看探测过程 |
-| 升级客户端后补丁失效 | 重跑对应命令即可；`--all --check` 先看状态 |
-| 3.14+ 跑内核补丁提示「不适用」 | 预期行为——档位改走 `--reasoning-config` |
+| 升级客户端后补丁失效 | 客户端升级会覆盖官方原版 app.asar。0.6.11+ 已实现**升级自愈感知**：开新会话后台会自动重新排期，并在会话中提示退出生效；也可随时跑 `python skills/zcode-tokenspeed/scripts/doctor.py --fix` 一键秒级自愈 |
 | 档位能选但请求无 thinking | 3.14+ 看 `--reasoning-config --check` 是否已写入；≤3.11 确认内核补丁已打且已重启 |
 | 状态栏 / 滑条 / 增强按钮不出现 | 渲染 console 看 `window.__ztpsDiag` / `window.__zsliderDiag` / `window.__zenhanceDiag` |
 | 增强提示词报「没找到可用的模型」 | 先在设置里配好供应商与 API Key |
@@ -978,6 +976,21 @@ CI（`.github/workflows/ci.yml`）在 Python 3.10 / 3.12 / 3.13 上跑这套用�
 
 下面是历次全面排查中**确认并修掉**的问题。每一条都配了回归测试，
 且做过**负向验证**（把修复回退后测试会变红）—— 所以这些坑不会悄悄回来。
+
+#### 0.6.11：客户端/插件升级后失效自愈与看护单例防死等优化
+
+**症状**：ZCode 客户端升级后，所有补丁特性消失且没有任何提醒；或者插件市场更新后开关变成 false 导致钩子停摆；看护日志显示多次「一直在等待、从未等到退出」。
+
+**根因**：
+1. 客户端升级覆盖全新的官方 `app.asar`，但由于旧的 `_autoinject.done` 标记残留，新版开会话时不发出任何提示，用户感知为“静默失效”；
+2. 看护进程 `apply_after_exit.py` 的 `DEFAULT_TASKS` 漏掉了 `--usage-chart`、`--model-width` 和 `--enhance-prompt` 三项；
+3. 多次打开会话启动了多个看护进程并发死循环，造成轮询争抢；
+4. 插件市场升级偶尔会将 `enabledPlugins` 重置为 `false`，导致 `SessionStart` 钩子再也不触发。
+
+**修法**：
+1. `sync.py` 增加 `CLIENT_FINGERPRINT` 客户端指纹比对，自动识别客户端升级事件并重置通知标记，在会话中主动给出友好说明并重新调度看护；
+2. `apply_after_exit.py` 补齐全量 7 项补丁，并实现 `_watchdog.pid` + `_watchdog.want` 单例互斥与需求合并机制；
+3. `doctor.py` 增加 `--fix` 一键自愈命令：自动纠正 `enabledPlugins: true`，并在 ZCode 未运行时直接一条命令补齐全部补丁，运行中则安全挂载单例看护。
 
 #### 0.6.10：TPS / 滑条的 `--check` 看不出「脚本是旧版」（静默失效链第三个入口）
 

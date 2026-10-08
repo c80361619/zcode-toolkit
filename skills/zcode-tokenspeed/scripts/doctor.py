@@ -751,17 +751,119 @@ def verdict(py_ok: bool, zcode_ok: bool, has_plugin: bool, enabled: bool,
     print("第 8 节里显示「未打」的重打包项，退出 ZCode 后再看一次即可确认。")
 
 
+def auto_fix() -> int:
+    """自动修复升级或配置异常：
+    1. 启用插件（enabledPlugins 改为 true）
+    2. 清理陈旧的看护锁
+    3. 如果 ZCode 未运行，立即应用全部补丁；若正在运行，调度退出后看护并给出提示
+    """
+    hr("一键自愈与修复（--fix）")
+    fixed_items = []
+
+    # 1. 修复 config.json 中的启用状态
+    cfgs = _find_configs()
+    for cfg_path in cfgs:
+        try:
+            cfg = _read_json(cfg_path)
+            if not isinstance(cfg, dict):
+                continue
+            plugins = cfg.setdefault("plugins", {})
+            changed = False
+            if plugins.get("enabled") is False:
+                plugins["enabled"] = True
+                changed = True
+                fixed_items.append("启用插件总开关 (plugins.enabled = true)")
+
+            en = plugins.setdefault("enabledPlugins", {})
+            matched = False
+            for k in list(en.keys()):
+                if str(k) == PLUGIN_NAME or str(k).startswith(PLUGIN_NAME + "@"):
+                    matched = True
+                    if not en[k]:
+                        en[k] = True
+                        changed = True
+                        fixed_items.append(f"启用插件：{k} = true")
+            if not matched:
+                default_key = f"{PLUGIN_NAME}@{REPO_NAME}"
+                en[default_key] = True
+                changed = True
+                fixed_items.append(f"登记并启用插件：{default_key} = true")
+
+            if changed:
+                cfg_path.write_text(json.dumps(cfg, ensure_ascii=False, indent=2), encoding="utf-8")
+        except Exception as e:
+            print(f"{BAD} 修复配置失败 {cfg_path}：{e}")
+
+    # 2. 清理陈旧看护锁
+    pid_file = HERE / "_watchdog.pid"
+    if pid_file.is_file():
+        try:
+            pid = int(pid_file.read_text(encoding="utf-8").strip())
+            from apply_after_exit import is_pid_alive
+            if not is_pid_alive(pid):
+                pid_file.unlink(missing_ok=True)
+                fixed_items.append(f"清理已失效的看护锁文件 (PID {pid})")
+        except Exception:
+            pid_file.unlink(missing_ok=True)
+
+    # 3. 检查客户端补丁状态
+    zp = _load_patcher()
+    running = False
+    try:
+        running = zp.zcode_running()
+    except Exception:
+        pass
+
+    if running:
+        print(f"{WARN} ZCode 正在运行，重打包补丁无法立即写入。")
+        try:
+            import sync
+            wanted, _ = sync.resolve_wanted()
+            sync.start_watchdog(wanted)
+            fixed_items.append("已激活后台看护 apply_after_exit.py")
+        except Exception as e:
+            print(f"{BAD} 启动看护失败：{e}")
+        print(f"{INFO} 提示：请在托盘图标【右键 → 退出】完全退出 ZCode 一次，")
+        print("       看护将在后台自动把全部补丁写进客户端并重新拉起 ZCode！")
+    else:
+        print(f"[*] ZCode 未运行，开始直接注入全部补丁...")
+        try:
+            r = subprocess.run([sys.executable, str(PATCHER), "--all"],
+                               cwd=str(HERE), capture_output=True, encoding="utf-8", errors="replace")
+            print((r.stdout or "") + (r.stderr or ""))
+            if r.returncode == 0:
+                fixed_items.append("全量补丁注入完成 (zcode_patcher.py --all)")
+            else:
+                print(f"{BAD} 补丁注入退出码: {r.returncode}")
+        except Exception as e:
+            print(f"{BAD} 执行补丁失败：{e}")
+
+    hr("修复汇总")
+    if fixed_items:
+        for item in fixed_items:
+            print(f"{OK} {item}")
+        print("\n[+] 自愈修复已完成！现在可以启动 ZCode 验证。")
+    else:
+        print(f"{INFO} 未发现需修复的配置项。")
+    return 0
+
+
 # ------------------------------------------------------------------ 入口
 
 def main() -> int:
     safe_stdio()          # 输出被重定向时 cp936 会编不出符号，先把这条路封死
-    ap = argparse.ArgumentParser(description="zcode-tokenspeed 安装自检（只读，不改任何文件）")
+    ap = argparse.ArgumentParser(description="zcode-tokenspeed 安装自检（只读，或配合 --fix 自动修复）")
     ap.add_argument("--json", action="store_true", help="以 JSON 输出（便于贴给别人看）")
     ap.add_argument("--where", action="store_true",
                     help="只打印扫描到的插件目录，排查「插件到底装在哪」")
     ap.add_argument("--where-all", action="store_true",
                     help="配合 --where：把扫过的全部候选目录都列出来（默认只列命中项）")
+    ap.add_argument("--fix", action="store_true",
+                    help="一键自愈修复：自动启用插件、重打补丁或调度退出看护")
     args = ap.parse_args()
+
+    if args.fix:
+        return auto_fix()
 
     if args.where or args.where_all:
         return print_where(verbose=args.where_all)
@@ -791,7 +893,7 @@ def main() -> int:
         }, ensure_ascii=False, indent=2))
         return 0
 
-    print("zcode-tokenspeed 自检报告（只读，不会修改任何文件）")
+    print("zcode-tokenspeed 自检报告（只读，不会修改任何文件；加 --fix 可自动修复）")
     py_ok = check_python()
     zcode_ok, _, _ = check_zcode()
     check_running()

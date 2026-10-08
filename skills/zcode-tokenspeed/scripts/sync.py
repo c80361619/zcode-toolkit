@@ -54,6 +54,8 @@ STAMP = HERE / "_sync.last"
 # 首次自动注入的标记：用来保证「装好了，正在自动注入」这条会话提示只出现一次，
 # 不然后面每次开会话都弹一遍，很快就变成噪声。
 MARKER = HERE / "_autoinject.done"
+# 客户端指纹记录：用来检测「ZCode 客户端是否刚升级过」
+CLIENT_FINGERPRINT = HERE / "_client_fingerprint.json"
 
 # 配置键 -> (zcode_patcher.py 参数, 是否重打包级)
 #
@@ -376,6 +378,30 @@ def run_patcher(args, revert: bool) -> str:
 
 def start_watchdog(wanted: dict) -> None:
     """启动退出后看护：等 ZCode 退出 → 应用重打包级补丁。"""
+    want_file = HERE / "_watchdog.want"
+    pid_file = HERE / "_watchdog.pid"
+    try:
+        cur_wants = {}
+        if want_file.is_file():
+            try:
+                cur_wants = json.loads(want_file.read_text(encoding="utf-8"))
+            except Exception:
+                cur_wants = {}
+        cur_wants.update(wanted)
+        want_file.write_text(json.dumps(cur_wants, ensure_ascii=False), encoding="utf-8")
+    except Exception:
+        pass
+
+    if pid_file.is_file():
+        try:
+            pid = int(pid_file.read_text(encoding="utf-8").strip())
+            from apply_after_exit import is_pid_alive
+            if is_pid_alive(pid):
+                log(f"看护进程已在运行中 (PID {pid})，已更新需求清单，无需重复启动")
+                return
+        except Exception:
+            pass
+
     args = [f"--want={k}={'on' if v else 'off'}" for k, v in wanted.items()]
     flags = (DETACHED_PROCESS | CREATE_NO_WINDOW) if os.name == "nt" else 0
     subprocess.Popen([sys.executable, str(WATCHDOG), *args], cwd=str(HERE),
@@ -501,12 +527,94 @@ def run_sync(echo: bool = False) -> str:
     return summary
 
 
-NOTICE_HEAD = "ZCode Patcher 已自动接管本地补丁注入（无需手动配置）"
+def get_client_fingerprint() -> dict:
+    """获取当前 ZCode 客户端安装指纹（版本号、asar 路径、大小与修改时间）。"""
+    try:
+        sys.path.insert(0, str(HERE))
+        import zcode_patcher as zp
+        asars = zp._resolve_asars(None)
+        if not asars:
+            return {}
+        asar = asars[0]
+        stat = asar.stat()
+        ver = str(zp.asar_version(asar) or "")
+        return {
+            "asar_path": str(asar.resolve()),
+            "version": ver,
+            "size": stat.st_size,
+            "mtime": int(stat.st_mtime),
+        }
+    except Exception:
+        return {}
 
 
-def build_notice() -> str:
-    """首次自动注入时注入会话的说明。"""
+def detect_upgrade_or_first_run() -> tuple[bool, bool, str]:
+    """检测是否是首次自动注入，或是客户端升级后的首次自愈注入。
+    返回: (should_notify, is_upgrade, client_version)
+    """
+    cur_fp = get_client_fingerprint()
+    cur_ver = cur_fp.get("version", "")
+    is_upgrade = False
+
+    if cur_fp and CLIENT_FINGERPRINT.is_file():
+        try:
+            old_fp = json.loads(CLIENT_FINGERPRINT.read_text(encoding="utf-8"))
+            if old_fp.get("asar_path") == cur_fp.get("asar_path"):
+                if old_fp.get("version") and cur_ver and old_fp.get("version") != cur_ver:
+                    is_upgrade = True
+                elif old_fp.get("size") != cur_fp.get("size"):
+                    is_upgrade = True
+        except Exception:
+            pass
+
+    if cur_fp:
+        try:
+            CLIENT_FINGERPRINT.write_text(json.dumps(cur_fp, ensure_ascii=False), encoding="utf-8")
+        except Exception:
+            pass
+
+    if is_upgrade:
+        MARKER.unlink(missing_ok=True)
+        try:
+            MARKER.write_text(time.strftime("%Y-%m-%d %H:%M:%S"), encoding="utf-8")
+        except Exception:
+            pass
+        log(f"检测到客户端升级 (v{cur_ver})，重置注入提示并准备自动重新注入")
+        return True, True, cur_ver
+
+    if not MARKER.exists():
+        try:
+            MARKER.write_text(time.strftime("%Y-%m-%d %H:%M:%S"), encoding="utf-8")
+        except Exception:
+            return False, False, cur_ver
+        return True, False, cur_ver
+
+    return False, False, cur_ver
+
+
+def first_auto_inject() -> bool:
+    """是不是这个插件安装后的第一次自动注入（兼容旧接口与测试断言）。"""
+    try:
+        if MARKER.exists():
+            return False
+        MARKER.write_text(time.strftime("%Y-%m-%d %H:%M:%S"), encoding="utf-8")
+        return True
+    except Exception:
+        return False
+
+
+def build_notice(is_upgrade: bool = False, version: str = "") -> str:
+    """自动注入时注入会话的说明（区分首次安装与客户端升级）。"""
     doctor = HERE / "doctor.py"
+    ver_tag = f"至 v{version} " if version else ""
+    if is_upgrade:
+        return (
+            f"检测到 ZCode 客户端已升级{ver_tag}！官方升级会覆盖客户端文件，增强补丁已在后台自动重新排期：\n"
+            "· 全部补丁项将在你**完全退出 ZCode**（托盘图标右键 → 退出，关窗口不算）时由后台看护自动写入；\n"
+            "  写入完成后看护会自动重启 ZCode，下次启动即可重新恢复全部增强功能！\n"
+            "· 随时可运行自检核对当前各补丁状态（只读）：\n"
+            f'    python "{doctor}"'
+        )
     return (
         f"{NOTICE_HEAD}。本次会话启动时已在后台开始同步：\n"
         "· 八项补丁（思考档位配置、用量页去截断、模型弹窗加宽、TPS 状态栏、思考强度滑条、"
@@ -518,37 +626,12 @@ def build_notice() -> str:
     )
 
 
-def emit_notice() -> None:
-    """往会话里注入一条说明，让「自动注入到底做没做」看得见。
-
-    输出必须符合 ZCode 的 HookJSONOutput schema —— 这份 schema 是从内核
-    `resources/glm/zcode.cjs` 里反查出来的（`uyr` / `grs` 两个 zod 定义）：
-
-        { additionalContext?, additional_context?, continue?, decision?,
-          hookSpecificOutput?, reason?, stopReason?, suppressOutput?, systemMessage? }
-
-    这里只用顶层 `additionalContext`：它在内核里被**无条件**推入 `additionalContexts`
-    （`Lio()` 里 `t.additionalContext && n.additionalContexts.push(...)`），
-    不像 `hookSpecificOutput` 那样还要校验 `hookEventName` 与本次事件一致 ——
-    写错事件名会被判为「钩子返回了错误的事件名」并把这次运行标成失败，没必要冒这个险。
-    输出以 `{` 开头才会被解析（`wQs()` 里 `if(!n||!n.startsWith("{"))return;`），
-    所以任何异常都直接吞掉、什么都不打印，绝不影响注入本身。
-    """
+def emit_notice(is_upgrade: bool = False, version: str = "") -> None:
+    """往会话里注入一条说明，让「自动注入到底做没做」看得见。"""
     try:
-        print(json.dumps({"additionalContext": build_notice()}, ensure_ascii=False))
+        print(json.dumps({"additionalContext": build_notice(is_upgrade, version)}, ensure_ascii=False))
     except Exception as exc:
         log(f"提示输出失败: {exc!r}")
-
-
-def first_auto_inject() -> bool:
-    """是不是这个插件安装后的第一次自动注入（决定要不要出那条提示）。"""
-    try:
-        if MARKER.exists():
-            return False
-        MARKER.write_text(time.strftime("%Y-%m-%d %H:%M:%S"), encoding="utf-8")
-        return True
-    except Exception:
-        return False
 
 
 def main() -> None:
@@ -563,8 +646,9 @@ def main() -> None:
     if "--detach" in argv:
         # 钩子模式：先留下心跳（哪怕后台起不来也证明钩子跑过），再立刻返回
         beat("已启动（后台同步）")
-        if first_auto_inject():
-            emit_notice()          # 只在首次自动注入时往会话里说明一句
+        notify, is_up, ver = detect_upgrade_or_first_run()
+        if notify:
+            emit_notice(is_upgrade=is_up, version=ver)
         if not spawn_detached(["--worker", "--from-hook"]):
             beat(run_sync(echo=False))  # 兜底：后台起不来就前台做完
         return

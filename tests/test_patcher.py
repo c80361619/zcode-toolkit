@@ -1670,6 +1670,35 @@ class TestDoctor(unittest.TestCase):
         self.assertEqual(doctor._prefix_entries({"plugins": {"options": []}}, "options"), {})
         self.assertEqual(doctor._prefix_entries(None, "options"), {})
 
+    def test_auto_fix_enables_plugin(self):
+        """auto_fix 必须能将 disabled 的 enabledPlugins 修复为 true。"""
+        import doctor
+        with tempfile.TemporaryDirectory() as d:
+            cfg_path = Path(d) / "config.json"
+            cfg_path.write_text(json.dumps({
+                "plugins": {
+                    "enabled": False,
+                    "enabledPlugins": {"zcode-tokenspeed@market": False}
+                }
+            }), encoding="utf-8")
+            orig_find = doctor._find_configs
+            orig_zp = doctor._load_patcher
+            doctor._find_configs = lambda: [cfg_path]
+            mock_zp = unittest.mock.MagicMock()
+            mock_zp.zcode_running.return_value = True
+            doctor._load_patcher = lambda: mock_zp
+            try:
+                buf = io.StringIO()
+                with contextlib.redirect_stdout(buf):
+                    rc = doctor.auto_fix()
+                self.assertEqual(rc, 0)
+                fixed = json.loads(cfg_path.read_text(encoding="utf-8"))
+                self.assertTrue(fixed["plugins"]["enabled"])
+                self.assertTrue(fixed["plugins"]["enabledPlugins"]["zcode-tokenspeed@market"])
+            finally:
+                doctor._find_configs = orig_find
+                doctor._load_patcher = orig_zp
+
     def test_manifest_version_reads_both_layouts(self):
         import doctor
         with tempfile.TemporaryDirectory() as d:
@@ -2466,6 +2495,37 @@ class TestAutoInject(unittest.TestCase):
             (sync.CONFIG, sync.STAMP, sync.LOG, sync.MARKER,
              sync.spawn_detached) = orig[:5]
             sys.argv[:] = orig[5]
+
+    def test_client_upgrade_detection_triggers_notice_again(self):
+        """客户端升级后（版本/指纹改变），必须重置标记并重新发出升级说明。"""
+        import sync
+        orig = (sync.CLIENT_FINGERPRINT, sync.MARKER, sync.get_client_fingerprint)
+        d = self._d / "upgrade_test"
+        d.mkdir(parents=True, exist_ok=True)
+        sync.CLIENT_FINGERPRINT = d / "_client_fingerprint.json"
+        sync.MARKER = d / "_autoinject.done"
+
+        # 模拟旧版客户端
+        sync.CLIENT_FINGERPRINT.write_text(
+            json.dumps({"asar_path": "dummy", "version": "3.14.1", "size": 100, "mtime": 100}),
+            encoding="utf-8"
+        )
+        sync.MARKER.write_text("2026-09-01", encoding="utf-8")
+
+        # 客户端升级至 3.14.5
+        sync.get_client_fingerprint = lambda: {
+            "asar_path": "dummy", "version": "3.14.5", "size": 120, "mtime": 200
+        }
+        try:
+            should_notify, is_upgrade, ver = sync.detect_upgrade_or_first_run()
+            self.assertTrue(should_notify)
+            self.assertTrue(is_upgrade)
+            self.assertEqual(ver, "3.14.5")
+            notice = sync.build_notice(is_upgrade=True, version="3.14.5")
+            self.assertIn("升级", notice)
+            self.assertIn("3.14.5", notice)
+        finally:
+            sync.CLIENT_FINGERPRINT, sync.MARKER, sync.get_client_fingerprint = orig
 
 
 class TestDoctorDiscovery(unittest.TestCase):
