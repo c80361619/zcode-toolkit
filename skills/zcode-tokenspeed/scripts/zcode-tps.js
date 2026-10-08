@@ -51,12 +51,42 @@
   };
   const setPos = (id) => { try { localStorage.setItem(POS_KEY, id); } catch (err) { /* 静默 */ } };
 
+  // ---------- 侧边栏/辅助对话与主会话边界判定 ----------
+  // 核心诉求：无论何时只挂载在主界面对话框，绝不在侧边栏（辅助对话）来回跳动。
+  function isInsideSidePane(el) {
+    if (!el || typeof el.closest !== "function") return false;
+    try {
+      return !!el.closest(
+        "[data-workspace-side-frame], " +
+        "[data-side-pane-tabs-content], " +
+        "[data-side-pane-tab-content], " +
+        "[data-side-pane-tabs-viewport], " +
+        "[data-workspace-sidebar-panel], " +
+        "[data-mobile-side-pane-overlay], " +
+        "[data-side-pane-terminal-stash], " +
+        "aside, " +
+        "[class*='side-pane'], [class*='sidePane'], [class*='sidebar-panel'], [class*='sidebarPanel']"
+      );
+    } catch (err) { return false; }
+  }
+
+  function isInsideMainConversation(el) {
+    if (!el || typeof el.closest !== "function") return false;
+    try {
+      return !!el.closest("[data-workspace-conversation-frame]");
+    } catch (err) { return false; }
+  }
+
   // 会话顶部 sticky 的挂载点:当前会话消息区的滚动容器。
   // 从轮次 section 向上找第一个纵向可滚动的祖先(主内容区特征:overflow auto/scroll 且足够高)。
   function findSessionScroller() {
-    const sec = document.querySelector("section[data-turn-id]");
+    const mainFrame = document.querySelector("[data-workspace-conversation-frame]");
+    const scope = mainFrame || document;
+    let secs = Array.from(scope.querySelectorAll("section[data-turn-id]")).filter((s) => !isInsideSidePane(s));
+    const sec = secs[0];
     let cur = sec ? sec.parentElement : null;
     while (cur && cur !== document.body) {
+      if (isInsideSidePane(cur)) break;
       let oy = "";
       try { oy = getComputedStyle(cur).overflowY; } catch (err) { /* ignore */ }
       if (/(auto|scroll)/.test(oy) && cur.clientHeight > 120) return cur;
@@ -375,13 +405,27 @@
     for (const sel of COMPOSER_INPUT_SELECTORS) {
       let hit = null;
       try {
-        const els = Array.from(document.querySelectorAll(sel));
+        let els = Array.from(document.querySelectorAll(sel));
         if (els.length) {
-          // 多个匹配时取可见且最靠近视口底部的（composer 在底部）
-          const vis = els.filter((e) => e.offsetParent != null);
-          hit = (vis.length ? vis : els).sort(
-            (a, b) => b.getBoundingClientRect().top - a.getBoundingClientRect().top
-          )[0];
+          // ① 严格剔除侧边栏/辅助对话中的输入框，绝不将状态栏挂入侧边栏
+          els = els.filter((e) => !isInsideSidePane(e));
+          if (els.length) {
+            // ② 优先取处于主会话容器 [data-workspace-conversation-frame] 内的输入框
+            const mainEls = els.filter(isInsideMainConversation);
+            const pool = mainEls.length ? mainEls : els;
+            const vis = pool.filter((e) => e.offsetParent != null);
+            const candidates = vis.length ? vis : pool;
+            // ③ 排序准则：以最靠下为主要准则；但当纵向坐标极度接近（<20px，左右并排）时，
+            //    绝对优先选择靠左（主工作区，left 较小）的主会话输入框，彻底杜绝跳动
+            candidates.sort((a, b) => {
+              const ra = a.getBoundingClientRect();
+              const rb = b.getBoundingClientRect();
+              const dTop = rb.top - ra.top;
+              if (Math.abs(dTop) > 20) return dTop;
+              return ra.left - rb.left;
+            });
+            hit = candidates[0];
+          }
         }
       } catch (err) { /* 选择器不合法，跳过 */ }
       tried.push({ selector: sel, count: hit ? 1 : 0 });
@@ -402,12 +446,13 @@
     try { card = ta.closest("[data-testid='v4-composer']"); } catch (err) { /* ignore */ }
     if (!card) card = ta.closest("form") ? ta.closest("form").parentElement : null;
     if (!card) card = ta.parentElement;
+    if (card && isInsideSidePane(card)) return null;   // 侧边栏卡片直接拒收
     return card || null;
   }
 
   function findToolbarRow() {
     const card = findComposerCard();
-    if (!card) return null;
+    if (!card || isInsideSidePane(card)) return null;
 
     // 从某元素向上找「工具栏行」：class 同时含 flex 与 items-end 的 div，且不得越过 card
     const rowFrom = (el, card) => {
@@ -473,7 +518,7 @@
     const changed = host.getAttribute("data-ztps-mode") !== mode;
     if (mode === "composer-below") {
       const card = findComposerCard();
-      if (!card || !card.parentElement) return false;
+      if (!card || !card.parentElement || isInsideSidePane(card)) return false;
       if (changed || host.parentElement !== card.parentElement || host.previousElementSibling !== card) {
         card.insertAdjacentElement("afterend", host);
         host.setAttribute("data-ztps-mode", mode);
@@ -488,7 +533,7 @@
       }
     } else if (mode === "session-top") {
       const sc = findSessionScroller();
-      if (!sc) return false;
+      if (!sc || isInsideSidePane(sc)) return false;
       if (changed || host.parentElement !== sc) {
         sc.insertBefore(host, sc.firstChild);
         host.setAttribute("data-ztps-mode", mode);
@@ -503,7 +548,7 @@
       }
     } else {
       const row = findToolbarRow();
-      if (!row) return false;
+      if (!row || isInsideSidePane(row)) return false;
       if (changed || host.parentElement !== row) {
         row.insertBefore(host, row.children[1] || null);
         host.setAttribute("data-ztps-mode", mode);
@@ -530,18 +575,21 @@
   function renderBar() {
     try {
       const mode = getPos();
-      // 只认当前会话 DOM 里可见的轮次——切走后旧统计不再展示。
-      // 当前会话 id 从 DOM 的 data-session-id 读取(激活 tab 即变,多会话并行互不干扰,reload 后立即可用)
+      // 只认当前主会话 DOM 里可见的轮次——排除侧边栏辅助对话的轮次干扰
       let domSess = null;
-      document.querySelectorAll("[data-session-id]").forEach((el) => {
+      const sessNodes = Array.from(document.querySelectorAll("[data-session-id]")).filter((el) => !isInsideSidePane(el));
+      for (const el of sessNodes) {
         if (!domSess && el.offsetParent != null) domSess = el.getAttribute("data-session-id");
-      });
-      if (!domSess) {
-        const el = document.querySelector("[data-session-id]");
-        if (el) domSess = el.getAttribute("data-session-id");
+      }
+      if (!domSess && sessNodes.length) {
+        domSess = sessNodes[0].getAttribute("data-session-id");
       }
       const visible = new Set();
-      document.querySelectorAll("section[data-turn-id]").forEach((el) => visible.add(el.getAttribute("data-turn-id")));
+      const mainFrame = document.querySelector("[data-workspace-conversation-frame]");
+      const turnScope = mainFrame || document;
+      turnScope.querySelectorAll("section[data-turn-id]").forEach((el) => {
+        if (!isInsideSidePane(el)) visible.add(el.getAttribute("data-turn-id"));
+      });
       lastVisible = visible;
       // 会话累计:轮数 / 累计输入 / 累计缓存命中 / 累计输出(仅当前可见会话的轮次)
       const agg = { rounds: 0, input: 0, cache: 0, output: 0 };
@@ -712,6 +760,10 @@
 
   function removeLegacyFooters() {
     try {
+      // 任何误落入侧边栏/辅助对话中的 bar 节点，强制摘除
+      document.querySelectorAll(`[${MARK}-bar]`).forEach((el) => {
+        if (isInsideSidePane(el)) el.remove();
+      });
       document.querySelectorAll(`[${MARK}]:not([data-ztps-bar])`).forEach((el) => el.remove());
     } catch (err) { /* 静默 */ }
   }

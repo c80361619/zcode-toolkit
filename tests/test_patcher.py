@@ -1629,6 +1629,31 @@ class TestEnhancePromptScript(unittest.TestCase):
                              "轮询周期过长：流式对话中按钮会长时间停在错误位置")
 
 
+class TestTpsSidePaneIsolation(unittest.TestCase):
+    """TPS 状态栏的侧边栏/辅助对话隔离逻辑：状态栏只能挂载在主对话框，绝不能在开启辅助对话时来回跳动。"""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.script = (Path(__file__).resolve().parent.parent
+                      / "skills" / "zcode-tokenspeed" / "scripts" / "zcode-tps.js")
+        cls.src = cls.script.read_text(encoding="utf-8")
+
+    def test_side_pane_detection_guards_exist(self):
+        self.assertIn("function isInsideSidePane", self.src)
+        self.assertIn("function isInsideMainConversation", self.src)
+        self.assertIn("data-workspace-side-frame", self.src)
+        self.assertIn("data-workspace-conversation-frame", self.src)
+
+    def test_find_composer_input_filters_side_pane_and_prioritizes_left(self):
+        self.assertIn("els = els.filter((e) => !isInsideSidePane(e))", self.src)
+        self.assertIn("ra.left - rb.left", self.src)
+
+    def test_card_and_attach_refuse_side_pane(self):
+        self.assertIn("isInsideSidePane(card)", self.src)
+        self.assertIn("isInsideSidePane(row)", self.src)
+        self.assertIn("isInsideSidePane(sc)", self.src)
+
+
 class TestDoctor(unittest.TestCase):
     """doctor.py 是「插件装了没生效」时的第一入口。它靠一批常量去定位安装目录、
     配置键和开关表——这些常量一旦和真实实现漂移，自检报告会指向错误的目录，
