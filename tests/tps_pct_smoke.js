@@ -116,9 +116,11 @@ check(!/Math\.round\(\s*\(?\s*agg\.cache\s*\/\s*agg\.input\s*\)?\s*\*\s*100/.tes
       "pct 又被提前 Math.round 成整数了（两位小数会被抹平）");
 
 // ---------- ③ 布局/刷新逻辑未被牵连 ----------
-// 这两条是本次改动的边界：只动显示格式，不碰内容签名与降级优先级。
-check(/agg\.rounds,\s*agg\.input,\s*agg\.cache,\s*agg\.output\]\.join/.test(src),
-      "状态栏内容签名（决定是否重绘）被改动了，刷新逻辑应保持不变");
+// 内容签名自 0.6.14 起新增 agg.total（「会话总计」段要参与重绘判定），
+// 但其余字段顺序与 .join 收尾不变；降级优先级仍为 [3,1,2]（只丢本轮段，
+// 会话累计段——含累出与会话总计——保留）。
+check(/agg\.rounds,\s*agg\.input,\s*agg\.cache,\s*agg\.output,\s*agg\.total\]\.join/.test(src),
+      "状态栏内容签名应含 agg.rounds/input/cache/output/total 且以 .join 收尾（刷新逻辑被改动？）");
 check(/for \(const drop of \[3, 1, 2\]\)/.test(src),
       "渐进降级顺序被改动了，状态栏布局应保持不变");
 

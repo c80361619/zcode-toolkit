@@ -232,7 +232,7 @@ python "<skill目录>/scripts/zcode_patcher.py" --model-puller
 | **档位配置（3.14+）** | 给自定义模型配思考等级 | `python zcode_patcher.py --reasoning-config [--check/--revert]` | `provider_config.json` 的 `providerModelRules.optionSpecs`（配置侧原生，**不打内核**） |
 | 思考等级透传（≤3.11） | 给自定义模型配思考等级 | `python zcode_patcher.py [--check/--revert/--extract]` | 内核 zcode.cjs（原地改写，.bak 备份） |
 | 打开统计图 | 用量页趋势图/饼图去截断 | `python zcode_patcher.py --usage-chart [--check/--revert]` | app.asar 内渲染文件（同长度原地改字节 + integrity 同步） |
-| 打开状态栏 | 输入框下方居中统计条（**v2 纯 DOM 观测，3.12.2+ 安全**；右键可切工具栏/会话顶部 sticky）：本轮指标 + 会话累计（第 N 轮/输入/命中+平均命中率/累出） | `python zcode_patcher.py --tps-footer [--check/--revert]` | app.asar（重打包级：注入脚本 + 挂载 index.html） |
+| 打开状态栏 | 输入框下方居中统计条（**v2 纯 DOM 观测，3.12.2+ 安全**；右键可切工具栏/会话顶部 sticky）：本轮指标（首 token/tok/s/出）+ 会话累计（第 N 轮/输入/命中+平均命中率/累出/会话总计 Token） | `python zcode_patcher.py --tps-footer [--check/--revert]` | app.asar（重打包级：注入脚本 + 挂载 index.html） |
 | 思考强度滑条 | 工具栏「思考 · 档名」入口，点击弹出拖动条面板（dsh-reasoning-effort 同款：胶囊轨道 + canvas 像素辐射 + 白色旋钮，连续跟手、松手吸附）；原生下拉隐藏，拖完即时生效 | `python zcode_patcher.py --thought-slider [--check/--revert]` | app.asar（重打包级：注入脚本 + 挂载 index.html） |
 | 加宽模型弹窗 | 模型选择浮窗加宽，长模型名不再截断 | `python zcode_patcher.py --model-width [--check/--revert]` | app.asar 内主 bundle（同长度原地改字节） |
 | **增强提示词** | 输入框旁一键润色草稿（可恢复原文）；**右键**弹出菜单选择使用哪个模型 | `python zcode_patcher.py --enhance-prompt [--check/--revert]` | app.asar（重打包级：renderer 脚本 + index.html + preload 桥 + main IPC） |
@@ -538,7 +538,7 @@ python zcode_patcher.py --model-width --revert   # 从 sidecar 还原
 
 ## 四、打开状态栏：TPS 统计胶囊
 
-> **实现：`zcode-tps.js`（唯一方案）—— 读 ServicePort 事件流，含精确 tok/s / 首 token / out**
+> **实现：`zcode-tps.js`（唯一方案）—— 读 ServicePort 事件流，含精确 tok/s / 首 token / 出 / 会话总计**
 >
 > 数据来自 preload 转交的端口事件流：`usage.delta`（真实 outputTokens/inputTokens）、
 > `stream.chunk`、行事件（turnHeader/userInput/reasoning/assistantText/row.delta）。
@@ -561,7 +561,7 @@ python zcode_patcher.py --model-width --revert   # 从 sidecar 还原
 > start，会让"不 start"也失败，从而误判为"方案不可行"（曾据此绕过一圈）。
 >
 > **已知特性**：tok/s 在开始生成后约 1~4 秒才出现（滑动窗口需 ≥2 个采样点，且思考阶段
-> 无文本增量），期间只显示 `●` 与时间，属预期；out（本轮累计输出）到达后立即显示。
+> 无文本增量），期间只显示 `●` 与时间，属预期；出（本轮累计输出）到达后立即显示。
 >
 > 本脚本基于社区分享版本实现，只删除了 `port.start()` 一行并补充自诊断，**计算逻辑与原版一致**。
 > ⚠️ **回滚预案**：改动 asar 前先 `python scripts/restore_clean.py --backup` 存一份干净副本，
@@ -572,13 +572,13 @@ python zcode_patcher.py --model-width --revert   # 从 sidecar 还原
 **默认挂在输入框（composer 卡片）下方、水平居中**的独立统计行（右键可切到工具栏行内居中或会话顶部 sticky），左组为**当前会话最近一轮**的即时指标，右组为**当前会话累计**（不含时间）：
 
 ```
-生成中:  ● 32 tok/s · out 410 │ 第 8 轮 │ 输入 45.2k · 命中 38.1k · 平均命中 84.00% · 累出 12.3k
-结束后:  ● 首 token 37s · out 1.7k │ 第 8 轮 │ 输入 45.2k · 命中 38.1k · 平均命中 84.00% · 累出 12.3k
+生成中:  ● 32 tok/s · 出 410 │ 第 8 轮 │ 输入 45k · 命中 38k · 平均命中 84.00% · 累出 12k · 会话总计 58k
+结束后:  ● 首 token 37s · 出 1.7k │ 第 8 轮 │ 输入 45k · 命中 38k · 平均命中 84.00% · 累出 12k · 会话总计 58k
 空会话:  ●            （绿点空态常驻，不显示假时钟）
 ```
 
-- **会话累计口径**：轮数=可见轮次数；输入/命中/累出=各轮 `usage.delta` 累加（API 计费视角，每轮 inputTokens 含历史所以累计值偏大，属预期）；平均命中=累计命中 ÷ 累计输入，**固定两位小数四舍五入**（`fmtPct`，不足补零，如 `84.00%`）；流式中未报 usage 的轮以内容估算兜底。
-- **渐进降级顺序**：溢出时先丢本轮 out → 首 token → tok/s，会话累计段保留。
+- **会话累计口径**：轮数=可见轮次数；输入/命中/累出=各轮 `usage.delta` 累加（API 计费视角，每轮 inputTokens 含历史所以累计值偏大，属预期）；**会话总计=各轮服务端 `totalTokens` 累加**（真实计费总量，一轮含多次模型请求则多条累加；未报 usage 的轮退回 `输入+输出` 估算兜底）；平均命中=累计命中 ÷ 累计输入，**固定两位小数四舍五入**（`fmtPct`，不足补零，如 `84.00%`）；流式中未报 usage 的轮以内容估算兜底。
+- **渐进降级顺序**：溢出时先丢本轮 出 → 首 token → tok/s，会话累计段（含会话总计）保留。
 
 ```bash
 python zcode_patcher.py --tps-footer             # 注入 scripts/zcode-tps.js
@@ -592,9 +592,9 @@ python zcode_patcher.py --tps-footer --tps-src /path/to/zcode-tps.js   # 指定�
 - **绿点 ● 常驻**：有可展示的轮次就在；流式生成中绿点发亮，空闲静态。不显示时间。
 - **分隔符**：组内 `·`、本轮组与会话累计组之间竖线 `│`；标签灰、数值白、tok/s 与平均命中橙、tabular-nums 对齐。
 - **同一 turnId 复用（编辑重发/重试）自动清零**：检测到新一轮开始即重置旧统计，杜绝「时间变新、指标是旧的」残留。
-- **out 语义**：**本轮累计输出**（最近一次提问→回答完成为止），非会话累计。
-- **动态刷新**：流式中 1 秒节奏刷新——tok/s 为 4s 滑动窗口即时速度、out 为本轮估算值；基于回答文本的 token 估算（CJK 1 字≈1 token、其余 4 字符≈1 token）。`usage.delta` 精确值随每次模型请求完成到达即覆盖估算；轮结束后为精确值（精确 out ÷ 首块→末次 usage 的解码窗口）。
-- **静默期保持**：工具执行期间文本停止增长，速度保持最近值不消失；点停止/出错时该次请求不报 usage，out 以内容估算兜底、速度保持最近值——已产生的数据不凭空消失。
+- **出（out）语义**：**本轮累计输出**（最近一次提问→回答完成为止），非会话累计；显示文案用中文缩写「出」（原 `out`）。
+- **动态刷新**：流式中 1 秒节奏刷新——tok/s 为 4s 滑动窗口即时速度、出（out）为本轮估算值；基于回答文本的 token 估算（CJK 1 字≈1 token、其余 4 字符≈1 token）。`usage.delta` 精确值随每次模型请求完成到达即覆盖估算；轮结束后为精确值（精确 出 ÷ 首块→末次 usage 的解码窗口）。
+- **静默期保持**：工具执行期间文本停止增长，速度保持最近值不消失；点停止/出错时该次请求不报 usage，出（out）以内容估算兜底、速度保持最近值——已产生的数据不凭空消失。
 - **切换会话立即消失**：渲染只认「DOM 可见轮次（`section[data-turn-id]`）+ `data-session-id` 匹配当前会话」双重条件，不依赖任何会话切换事件；多会话并行时各 tab 互不干扰。
 - **历史会话累计缺失**：usage.delta 不回放，重新打开旧会话拿不到当时的 token 统计，属预期。
 - **无假时钟**：不显示时间段，绝不拿当前时间冒充轮次时间。

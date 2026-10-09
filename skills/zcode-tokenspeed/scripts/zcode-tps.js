@@ -1,12 +1,13 @@
 /**
  * ZCode 状态栏：TPS 统计胶囊 —— 事件流实现（唯一方案）
  * ==================================================
- * 输入框工具栏常驻胶囊：● 时间 · 首 token · tok/s · out（当前会话最近一轮）
+ * 常驻胶囊：● 首 token · tok/s · 出（当前会话最近一轮）
+ *   │ 会话累计（第 N 轮 / 输入 / 命中+命中率 / 累出 / 会话总计 Token）
  *
  * 数据源（ZCode 主进程经 window.postMessage 转交的 ServicePort 事件流）：
  *   - version:1 事件流：usage.delta（真实 outputTokens/inputTokens）、stream.chunk
  *   - conversation 行事件：turnHeader / userInput / reasoning / assistantText / row.delta
- * 由此得到精确的 tok/s（4s 滑动窗口）、首 token 延迟、out（本轮累计输出）。
+ * 由此得到精确的 tok/s（4s 滑动窗口）、首 token 延迟、出（本轮累计输出）与会话总计 Token。
  *
  * ⚠️ 关键约束：**绝不调用 port.start()**
  *   MessagePort 队列一旦启用，消息只派发给"启用瞬间已注册的监听器"。本脚本是普通
@@ -504,7 +505,7 @@
   let diag = null;
   try {
     diag = window.__ztpsDiag = window.__ztpsDiag || {};
-    diag.scriptVersion = "3.14-pos";
+    diag.scriptVersion = "3.15-zh";
     diag.loadedAt = new Date().toISOString();
   } catch (err) { /* ignore */ }
 
@@ -591,8 +592,8 @@
         if (!isInsideSidePane(el)) visible.add(el.getAttribute("data-turn-id"));
       });
       lastVisible = visible;
-      // 会话累计:轮数 / 累计输入 / 累计缓存命中 / 累计输出(仅当前可见会话的轮次)
-      const agg = { rounds: 0, input: 0, cache: 0, output: 0 };
+      // 会话累计:轮数 / 累计输入 / 累计缓存命中 / 累计输出 / 总计消耗(仅当前可见会话的轮次)
+      const agg = { rounds: 0, input: 0, cache: 0, output: 0, total: 0 };
       let latest = null;
       for (const t of turns.values()) {
         if (!visible.has(t.msgId)) continue;
@@ -602,7 +603,11 @@
         agg.input += t.inputTokens || 0;
         agg.cache += t.cacheReadTokens || 0;
         // 流式中 usage 未到的轮以内容估算兜底,精确值到达后自然覆盖
-        agg.output += Math.max(t.outputTokens || 0, t.streaming ? (t.textTok || 0) : 0);
+        const rowOut = Math.max(t.outputTokens || 0, t.streaming ? (t.textTok || 0) : 0);
+        agg.output += rowOut;
+        // 会话总计:优先服务端 totalTokens(真实计费口径,一轮含多次请求则多条累加);
+        // 流式中/中断轮未报 usage 时退回 input+输出估算兜底,精确值到达后自然覆盖
+        agg.total += t.totalTokens > 0 ? t.totalTokens : (t.inputTokens || 0) + rowOut;
         if (!latest || (t.startedAt ?? 0) > (latest.startedAt ?? 0)) latest = t;
       }
       let host = document.querySelector("[" + MARK + "-bar]");
@@ -669,7 +674,7 @@
       const s = statsOf(latest);
       // 内容签名:未变化时只做溢出复查(零 DOM 写),避免 MutationObserver 自激
       const key = [s.stamp, s.ttft, s.tps, s.out, s.streaming,
-                   agg.rounds, agg.input, agg.cache, agg.output].join("|");
+                   agg.rounds, agg.input, agg.cache, agg.output, agg.total].join("|");
       let segs = pill._zsegs;
       if (pill._zkey !== key) {
         pill._zkey = key;
@@ -691,12 +696,12 @@
         dot.style.color = "#4ade80";
         if (s.streaming) dot.style.textShadow = "0 0 6px rgba(74,222,128,.8)";
         pill.appendChild(dot);
-        // 段布局:本轮即时指标(g0:首 token/tok/s/out)+ 会话累计(g1:轮/输入/命中+命中率/累出)。
+        // 段布局:本轮即时指标(g0:首 token/tok/s/出)+ 会话累计(g1:轮/输入/命中+命中率/累出/会话总计)。
         // 组间用竖线分隔,组内用 · ;不显示时间(用户不需要)
         segs = [];
         if (s.ttft != null && s.ttft >= 0) segs.push({ p: 1, g: 0, nodes: [span("首 token "), span(fmtLat(s.ttft), "VALUE")] });
         if (s.tps != null) segs.push({ p: 2, g: 0, nodes: [span(fmtTps(s.tps) + " tok/s", "ACCENT")] });
-        if (s.out > 0) segs.push({ p: 3, g: 0, nodes: [span("out "), span(fmtTok(s.out), "VALUE")] });
+        if (s.out > 0) segs.push({ p: 3, g: 0, nodes: [span("出 "), span(fmtTok(s.out), "VALUE")] });
         if (agg.rounds > 0) segs.push({ p: 4, g: 1, nodes: [span("第 " + agg.rounds + " 轮")] });
         if (agg.input > 0) {
           const nodes = [span("输入 "), span(fmtTok(agg.input), "VALUE")];
@@ -708,6 +713,7 @@
           segs.push({ p: 5, g: 1, nodes });
         }
         if (agg.output > 0) segs.push({ p: 6, g: 1, nodes: [span("累出 "), span(fmtTok(agg.output), "VALUE")] });
+        if (agg.total > 0) segs.push({ p: 7, g: 1, nodes: [span("会话总计 "), span(fmtTok(agg.total), "VALUE")] });
         segs.forEach((g, i) => {
           if (i > 0) {
             const cross = segs[i - 1].g !== g.g;   // 跨组:竖线分隔,更醒目

@@ -1,7 +1,7 @@
 # zcode-tokenspeed · ZCode 客户端一站式原生增强套件
 
 <p align="left">
-  <a href="https://github.com/c80361619/zcode-toolkit/releases"><img src="https://img.shields.io/badge/version-0.6.13-blue.svg?style=flat-square" alt="Version"></a>
+  <a href="https://github.com/c80361619/zcode-toolkit/releases"><img src="https://img.shields.io/badge/version-0.6.14-blue.svg?style=flat-square" alt="Version"></a>
   <img src="https://img.shields.io/badge/python-3.10+-3776AB.svg?style=flat-square&logo=python&logoColor=white" alt="Python">
   <img src="https://img.shields.io/badge/dependencies-0%20(std%20only)-success.svg?style=flat-square" alt="Dependencies">
   <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg?style=flat-square" alt="Platform">
@@ -158,6 +158,10 @@ run.cmd                        # Windows
 
 <details>
 <summary><b>📜 历史版本审计与故障排查记录</b></summary>
+
+#### 0.6.14（TPS 状态栏中文标签与会话总计 Token）
+- **本轮输出改中文缩写**：TPS 胶囊里的 `out` → 「出」，与「累出」风格统一；
+- **新增「会话总计」段**：在「累出」之后追加本对话总计消耗 Token——各轮服务端 `totalTokens` 累加（真实计费口径，一轮含多次模型请求则多条累加；未报 usage 的轮退回「输入+输出」估算兜底），数值经 `fmtTok` 自动 k/m 缩写。
 
 #### 0.6.13（提示词增强侧边栏隔离、看护批处理重打包与 3.14.5 适配）
 - **提示词增强侧边栏隔离**：`zcode-enhance-prompt.js` 补齐侧边栏边界判定（`isInsideSidePane`）与等高靠左优先保序，自愈分支杜绝误挂，彻底根治侧边栏辅助对话导致润色按钮飘移的竞态；
