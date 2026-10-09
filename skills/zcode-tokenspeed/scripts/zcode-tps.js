@@ -271,6 +271,9 @@
       t.cacheReadTokens += ev.cacheReadTokens || 0;
       t.totalTokens += ev.totalTokens || 0;
       t.modelId = ev.modelId || t.modelId;
+      if (t.modelId && typeof window !== "undefined") {
+        window.__ztpsCurrentModelId = t.modelId;
+      }
       t.sessionId = ev.sessionId || t.sessionId;
       t.lastUsageAt = ev.occurredAt ?? t.lastUsageAt;
       if (t.firstChunkAt == null && firstChunkByScid[scid] != null) {

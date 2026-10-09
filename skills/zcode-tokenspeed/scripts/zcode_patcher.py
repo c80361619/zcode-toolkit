@@ -1550,9 +1550,11 @@ if(cp&&usable(cp.p)){pick=cand(cpid,cmid,"config")}}
 //    ★ 必须带 !pick 守卫：否则界面选择一旦可读，就会把上面 ⓪ 热配置档覆盖掉，
 //      使「enhance_config.json 指哪打哪」只在界面取值失灵时才生效（自相矛盾）。
 //      ②③ 两档本来就有 !pick，这里补齐才与它们一致。
+// ① 界面直接给的 ref（providerId/modelId）——最准
 if(!pick&&mv){let k=mv.indexOf("/");
 if(k>0){let pid=mv.slice(0,k),mid=mv.slice(k+1);
-if(modelsOf(pid)[mid]){let c=cand(pid,mid,"ref");if(c)pick=c}}}
+if(modelsOf(pid)[mid]){let c=cand(pid,mid,"ref");if(c)pick=c}
+else if(byId[pid]&&usable(byId[pid].p)){let c=cand(pid,mid,"ref");if(c)pick=c}}}
 // ② 按 ref 的 providerId + 界面显示名，在该供应商内部定位模型
 //    （ref 里的 modelId 与配置键不一致时，这一档能救回来）
 if(!pick&&mv&&ml){let k=mv.indexOf("/");
@@ -1564,8 +1566,9 @@ for(let c2 of names){
 if(c2&&String(c2).trim().toLowerCase()===ml){let c=cand(pid,mid,"ref-label");if(c)pick=c;break}}
 if(pick)break}}}
 
-// ③ 全表按显示名反查（不限自定义：内置供应商只要能读到 key 也应该能用）
-if(!pick&&ml){
+// ③ 全表按显示名反查（不限自定义：内置供应商只要能读到 key 也应该能用；纯 modelId 亦可定位）
+let targetName=ml||(mv&&mv.indexOf("/")<0?mv.toLowerCase():"");
+if(!pick&&targetName){
 for(let c of all){
 let pid=c.pid,pp=c.p;
 if(!pp||typeof pp!="object")continue;
@@ -1573,7 +1576,7 @@ for(let mid of Object.keys(pp.models||{})){
 let mm=pp.models[mid]||{};
 let names=[mid,mm.name,pid+"/"+mid];
 for(let c3 of names){
-if(c3&&String(c3).trim().toLowerCase()===ml){let cc=cand(pid,mid,"label");if(cc)pick=cc;break}}
+if(c3&&String(c3).trim().toLowerCase()===targetName){let cc=cand(pid,mid,"label");if(cc)pick=cc;break}}
 if(pick)break}
 if(pick)break}}
 // ④ 末档兜底：界面没给出任何可用线索时，才用第一个真正可用的供应商

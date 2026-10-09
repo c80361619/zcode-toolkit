@@ -244,7 +244,7 @@ def resolve(cands: list[dict], by_id: dict, mv: str, ml_raw: str,
     if mv and "/" in mv:
         k = mv.index("/")
         pid, mid = mv[:k], mv[k + 1:]
-        if mid in models_of(pid):
+        if mid in models_of(pid) or (by_id.get(pid) and usable(by_id[pid])):
             c = cand(pid, mid, "ref")
             if c:
                 return c, "ref", tried
@@ -258,10 +258,11 @@ def resolve(cands: list[dict], by_id: dict, mv: str, ml_raw: str,
                 if cc:
                     return cc, "ref-label", tried
 
-    if ml:
+    target_name = ml or (mv.lower() if (mv and "/" not in mv) else "")
+    if target_name:
         for c in cands:
             for mid in c["models"]:
-                if any(str(x).strip().lower() == ml for x in (mid, c["pid"] + "/" + mid)):
+                if any(str(x).strip().lower() == target_name for x in (mid, c["pid"] + "/" + mid)):
                     cc = cand(c["pid"], mid, "label")
                     if cc:
                         return cc, "label", tried

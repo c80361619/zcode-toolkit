@@ -914,6 +914,22 @@ class TestDoctorMirrorsHandler(unittest.TestCase):
                                      override={"providerId": "dead", "modelId": "m9"})
         self.assertEqual(how, "ref", "不可用的 override 应被跳过，落到 ref 档")
 
+    def test_ref_keeps_current_provider_for_custom_models(self):
+        """即使模型不在静态列表中（中转站模型），只要 providerId 可用，必须坚守在该供应商，绝不越界 fallback 到其它供应商。"""
+        cands = self._cands()
+        by_id = {c["pid"]: c for c in cands}
+        pick, how, _ = self.doc.resolve(cands, by_id, "p1/custom-model", "Custom Model")
+        self.assertEqual(how, "ref", "可用供应商的自定义模型应由 ref 档坚守承接")
+        self.assertEqual((pick["pid"], pick["mid"]), ("p1", "custom-model"))
+
+    def test_label_resolves_pure_model_id_without_slash(self):
+        """从 TPS 实时事件流拿到纯 modelId 时，应能通过 label 档在所有供应商中精确反查命中。"""
+        cands = self._cands()
+        by_id = {c["pid"]: c for c in cands}
+        pick, how, _ = self.doc.resolve(cands, by_id, "m3", "")
+        self.assertEqual(how, "label")
+        self.assertEqual((pick["pid"], pick["mid"]), ("p2", "m3"))
+
     def test_tier_order_matches_handler_source(self):
         """doctor 的行为顺序必须与 handler 源码顺序同构。"""
         src = zp._ENHANCE_HANDLER

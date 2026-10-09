@@ -503,6 +503,16 @@
    *  残留的设置/工作流面板节点反而「更靠下」被取走（或整池为空），于是
    *  mv/ml 恒为空 → 主进程各档解析全空 → 掉进兜底档，把请求发给供应商表里
    *  第一个可用供应商的第一个模型。典型表现：报错里的模型不是你选的那个。 */
+  let lastKnownModel = { value: "", label: "" };
+
+  /** 当前选中的模型：模型按钮就挂在 composer 工具栏上，因此先锚定 dock 再找
+   *  [data-model-current-value]（形如 providerId/modelId）。
+   *  ★ 对话进行中防御：
+   *  ① 优先在主工作区 dock 内找；全局退回时强制排除侧边栏（!isInsideSidePane），
+   *     彻底防止抓取到侧边栏辅助对话的模型；
+   *  ② 引入会话级粘性记忆（lastKnownModel）：流式生成中若工具栏 DOM 瞬态缺失/重绘，
+   *     无缝回退到刚选定的模型，绝不掉进空值 fallback；
+   *  ③ 联动 TPS 实时事件流（window.__ztpsCurrentModelId），双重锁定当前会话真实模型。 */
   function currentModel() {
     let value = "", label = "";
     try {
@@ -510,15 +520,23 @@
       let pool = [];
       if (dock) pool = Array.from(dock.querySelectorAll("[data-model-current-value]"));
       if (!pool.length) {
-        // dock 内没有（极端布局）才退回全局，但排除工作流运行设置等面板的残留节点
+        // dock 内没有（生成态/极端布局）才退回全局，但严格排除侧边栏，且优先主工作区
         pool = Array.from(document.querySelectorAll("[data-model-current-value]"))
-          .filter((e) => !e.closest("[data-testid='workflow-run-settings-model']"));
+          .filter((e) => !isInsideSidePane(e) && !e.closest("[data-testid='workflow-run-settings-model']"));
+        const mainPool = pool.filter(isInsideMainConversation);
+        if (mainPool.length) pool = mainPool;
       }
       if (pool.length) {
         const vis = pool.filter((e) => e.offsetParent != null);
         // dock 命中时不再因 offsetParent=null 丢弃：fixed 容器里该属性本就恒为 null
         const usablePool = (dock && pool.length) ? pool : (vis.length ? vis : pool);
-        usablePool.sort((a, b) => b.getBoundingClientRect().top - a.getBoundingClientRect().top);
+        usablePool.sort((a, b) => {
+          const ra = a.getBoundingClientRect();
+          const rb = b.getBoundingClientRect();
+          const dTop = rb.top - ra.top;
+          if (Math.abs(dTop) > 20) return dTop;
+          return ra.left - rb.left;
+        });
         const el = usablePool[0];
         value = String(el.getAttribute("data-model-current-value") || "").trim();
         // 显示名取该节点里最长的可见文本（模型名 + 可能的连接方式后缀）
@@ -527,6 +545,24 @@
         diag.modelCandidates = pool.length;
       }
     } catch (err) { /* ignore */ }
+
+    // ① 会话级粘性记忆更新与无缝回退
+    if (value || label) {
+      lastKnownModel = { value, label };
+    } else if (lastKnownModel.value || lastKnownModel.label) {
+      value = lastKnownModel.value;
+      label = lastKnownModel.label;
+    }
+
+    // ② 跨脚本实时信源辅助（联动 zcode-tps.js 捕获的底层真实生成模型）
+    if (!value && typeof window !== "undefined" && window.__ztpsCurrentModelId) {
+      const liveMid = String(window.__ztpsCurrentModelId).trim();
+      if (liveMid) {
+        value = liveMid;
+        label = label || liveMid;
+      }
+    }
+
     return { value, label };
   }
 
@@ -717,6 +753,7 @@
     ensureStyle();
     const input = findInput();
     if (!input) { if (btn) { btn.remove(); btn = null; } diag.hiddenReason = "未找到输入框"; return; }
+    try { const cur = currentModel(); if (cur.value || cur.label) diag.currentModel = cur; } catch (_) {}
 
     // ★ 菜单开着时的看护：按钮在 → 跟随重定位；按钮被重渲染摘掉 → 给 4 秒宽限
     //   （菜单保持可点），宽限内回来就继续跟随，超时才收起。

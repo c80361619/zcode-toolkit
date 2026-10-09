@@ -1628,6 +1628,15 @@ class TestEnhancePromptScript(unittest.TestCase):
         self.assertLessEqual(int(m.group(1)), 1000,
                              "轮询周期过长：流式对话中按钮会长时间停在错误位置")
 
+    def test_current_model_has_sticky_memory_and_side_pane_isolation(self):
+        """流式生成中模型胶囊瞬态缺失时，必须有会话粘性记忆回退，且全局搜索必须排除侧边栏。"""
+        self.assertIn("lastKnownModel", self.src, "必须具备会话级粘性模型记忆")
+        body = self.src[self.src.index("function currentModel("):]
+        body = body[:body.index("\n  // ---------- 挂载点解析 ----------")]
+        self.assertIn("!isInsideSidePane(e)", body, "全局搜索必须排除侧边栏，防止抓取辅助对话的模型")
+        self.assertIn("lastKnownModel = { value, label }", body, "读取到有效模型时必须更新粘性记忆")
+        self.assertIn("value = lastKnownModel.value", body, "读空时必须回退到粘性记忆")
+
 
 class TestTpsSidePaneIsolation(unittest.TestCase):
     """TPS 状态栏的侧边栏/辅助对话隔离逻辑：状态栏只能挂载在主对话框，绝不能在开启辅助对话时来回跳动。"""
