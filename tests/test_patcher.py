@@ -2446,6 +2446,46 @@ class TestAutoInject(unittest.TestCase):
         self.assertEqual({k for k, _a, _r in self.sync.PATCHES} - set(aae.PATCH_ARGS),
                          set(), "apply_after_exit.PATCH_ARGS 漏了开关，退出后看护会静默忽略它")
 
+    def test_watchdog_batch_tasks_merges_repack_invocations(self):
+        """看护必须将同方向的补丁参数合并为批量调用，避免多次解包/重打包 asar 导致 20s+ 耗时。"""
+        import apply_after_exit as aae
+
+        # ① 全量默认任务（7项全部应用）应合并为 1 次批量调用
+        default_tasks = [(args, False) for args in aae.DEFAULT_TASKS]
+        batched = aae.batch_tasks(default_tasks)
+        self.assertEqual(len(batched), 1, "全量 7 项应用任务应合并为单次调用")
+        args, rev = batched[0]
+        self.assertFalse(rev)
+        self.assertIn("--tps-footer", args)
+        self.assertIn("--enhance-prompt", args)
+        self.assertIn("--thought-slider", args)
+        self.assertIn("--model-puller", args)
+        self.assertIn("--usage-chart", args)
+        self.assertEqual(len(args), 7)
+
+        # ② 混合任务：关闭项走一次 revert，开启项走一次 apply（先还原后应用）
+        mixed_tasks = [
+            (["--tps-footer"], False),
+            (["--enhance-prompt"], True),
+            (["--model-puller"], False),
+        ]
+        batched_mixed = aae.batch_tasks(mixed_tasks)
+        self.assertEqual(len(batched_mixed), 2, "混合任务应分为 1 次还原和 1 次应用")
+        # 第 1 步先还原
+        self.assertEqual(batched_mixed[0], (["--enhance-prompt"], True))
+        # 第 2 步后应用
+        self.assertEqual(batched_mixed[1], (["--tps-footer", "--model-puller"], False))
+
+        # ③ 内核补丁（空参数项）保持独立调用，不与 asar 标志混杂
+        core_tasks = [
+            (["--tps-footer"], False),
+            ([], False),
+        ]
+        batched_core = aae.batch_tasks(core_tasks)
+        self.assertEqual(len(batched_core), 2)
+        self.assertEqual(batched_core[0], (["--tps-footer"], False))
+        self.assertEqual(batched_core[1], ([], False))
+
     # ------------------------------------------------------ 会话提示（可见性）
 
     def test_notice_is_a_schema_valid_hook_output(self):

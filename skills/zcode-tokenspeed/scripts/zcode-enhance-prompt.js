@@ -367,17 +367,55 @@
     "[data-testid='v4-composer']",
   ];
 
+  // ---------- 侧边栏/辅助对话与主会话边界判定 ----------
+  function isInsideSidePane(el) {
+    if (!el || typeof el.closest !== "function") return false;
+    try {
+      return !!el.closest(
+        "[data-workspace-side-frame], " +
+        "[data-side-pane-tabs-content], " +
+        "[data-side-pane-tab-content], " +
+        "[data-side-pane-tabs-viewport], " +
+        "[data-workspace-sidebar-panel], " +
+        "[data-mobile-side-pane-overlay], " +
+        "[data-side-pane-terminal-stash], " +
+        "aside, " +
+        "[class*='side-pane'], [class*='sidePane'], [class*='sidebar-panel'], [class*='sidebarPanel']"
+      );
+    } catch (err) { return false; }
+  }
+
+  function isInsideMainConversation(el) {
+    if (!el || typeof el.closest !== "function") return false;
+    try {
+      return !!el.closest("[data-workspace-conversation-frame]");
+    } catch (err) { return false; }
+  }
+
   /** 取 composer dock —— 输入框与其工具栏行的最近公共容器。 */
   function findDock() {
     for (const sel of DOCK_SELECTORS) {
       let els = [];
       try { els = Array.from(document.querySelectorAll(sel)); } catch (err) { continue; }
       if (!els.length) continue;
-      // 可见优先；仍以「最靠下」为准则（多会话/侧边栏场景可能有多个）
-      const vis = els.filter((e) => e.offsetParent != null);
-      const pool = vis.length ? vis : els;
-      pool.sort((a, b) => b.getBoundingClientRect().top - a.getBoundingClientRect().top);
-      return pool[0];
+      // ① 严格剔除侧边栏/辅助对话内的 dock 候选
+      els = els.filter((e) => !isInsideSidePane(e));
+      if (!els.length) continue;
+      // ② 优先取处于主会话容器 [data-workspace-conversation-frame] 内的 dock
+      const mainEls = els.filter(isInsideMainConversation);
+      const pool = mainEls.length ? mainEls : els;
+      const vis = pool.filter((e) => e.offsetParent != null);
+      const candidates = vis.length ? vis : pool;
+      // ③ 排序准则：以最靠下为准；但当纵向高度相近（<20px，左右并排）时，
+      //    绝对优先选择靠左（主工作区）的 dock，防止跳入辅助对话
+      candidates.sort((a, b) => {
+        const ra = a.getBoundingClientRect();
+        const rb = b.getBoundingClientRect();
+        const dTop = rb.top - ra.top;
+        if (Math.abs(dTop) > 20) return dTop;
+        return ra.left - rb.left;
+      });
+      return candidates[0];
     }
     return null;
   }
@@ -398,16 +436,25 @@
       }
     }
     // ② 兼容模式：dock 锚点不存在才退回全局，但仅认「带明确 composer 语义」的选择器，
-    //    不含 textarea / [contenteditable] 这类会误伤消息区的通用选择器。
+    //    严格排除侧边栏候选与通用选择器
     for (const sel of COMPOSER_INPUT_SELECTORS) {
       if (sel === "textarea" || sel === "[contenteditable='true']" || sel === "form textarea") continue;
       let els = [];
       try { els = Array.from(document.querySelectorAll(sel)); } catch (err) { continue; }
+      els = els.filter((e) => !isInsideSidePane(e));
       if (!els.length) continue;
-      const vis = els.filter((e) => e.offsetParent != null);
-      const pool = vis.length ? vis : els;
-      pool.sort((a, b) => b.getBoundingClientRect().top - a.getBoundingClientRect().top);
-      return pool[0];
+      const mainEls = els.filter(isInsideMainConversation);
+      const pool = mainEls.length ? mainEls : els;
+      const vis = pool.filter((e) => e.offsetParent != null);
+      const candidates = vis.length ? vis : pool;
+      candidates.sort((a, b) => {
+        const ra = a.getBoundingClientRect();
+        const rb = b.getBoundingClientRect();
+        const dTop = rb.top - ra.top;
+        if (Math.abs(dTop) > 20) return dTop;
+        return ra.left - rb.left;
+      });
+      return candidates[0];
     }
     return null;
   }
@@ -702,10 +749,10 @@
     diag.mountWhere = mount.where;
 
     if (btn && btn.isConnected) {
-      // ★ 位置自愈：按钮虽还在文档里，但已不在正确容器内（客户端重渲染把按钮
-      //   连同旧节点一起搬走 / 被消息列表的 DOM 复用吞掉）→ 主动搬回来。
+      // ★ 位置自愈：按钮虽还在文档里，但已不在正确容器内（如之前误挂在侧边栏、
+      //   客户端重渲染把按钮连同旧节点一起搬走 / 被消息列表的 DOM 复用吞掉）→ 主动搬回来。
       const okPlace = btn.parentElement === host;
-      const stillInDock = !dock || dock.contains(btn);
+      const stillInDock = (!dock || dock.contains(btn)) && !isInsideSidePane(btn);
       if (!okPlace || !stillInDock) {
         diag.reattaches = (diag.reattaches || 0) + 1;
         place(btn, host, mount.where);

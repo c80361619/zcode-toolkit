@@ -176,6 +176,38 @@ def parse_wants(argv: list[str]):
     return tasks or None
 
 
+def batch_tasks(tasks: list[tuple[list[str], bool]]) -> list[tuple[list[str], bool]]:
+    """将同方向（revert 或 apply）的补丁参数合并为批量调用，避免多次解包/重打包 asar。
+
+    规则：
+      1. 先执行 revert（还原关闭的项），再执行 apply（应用开启的项）；
+      2. 针对同一方向：
+         - 拥有具体命令行参数的补丁（如 --tps-footer, --enhance-prompt 等）合并为单次批量调用，
+           参数保持既有顺序并去重；
+         - 空参数项（即 core_patch 思维强度内核补丁）保持独立调用（因为 zcode_patcher 在
+           接收 asar 标志时不会跑内核补丁）。
+    """
+    batched = []
+    for target_revert in (True, False):
+        subset = [args for args, rev in tasks if rev == target_revert]
+        if not subset:
+            continue
+        merged_args = []
+        has_core_patch = False
+        for args in subset:
+            if not args:
+                has_core_patch = True
+            else:
+                for a in args:
+                    if a not in merged_args:
+                        merged_args.append(a)
+        if merged_args:
+            batched.append((merged_args, target_revert))
+        if has_core_patch:
+            batched.append(([], target_revert))
+    return batched
+
+
 def _cleanup_singletons(cur_pid: int) -> None:
     try:
         if PID_FILE.is_file() and PID_FILE.read_text(encoding="utf-8").strip() == str(cur_pid):
@@ -213,12 +245,13 @@ def main() -> int:
             _cleanup_singletons(cur_pid)
             return 1
 
-    tasks = parse_wants(sys.argv[1:])
-    if tasks is None:
-        tasks = [(args, False) for args in DEFAULT_TASKS]
-    desc = "、".join(("还原 " if rev else "应用 ") + (" ".join(a) or "内核补丁") for a, rev in tasks)
+    raw_tasks = parse_wants(sys.argv[1:])
+    if raw_tasks is None:
+        raw_tasks = [(args, False) for args in DEFAULT_TASKS]
+    desc = "、".join(("还原 " if rev else "应用 ") + (" ".join(a) or "内核补丁") for a, rev in raw_tasks)
     log(f"ZCode 已退出（等待 {waited}s），开始处理：{desc}")
 
+    tasks = batch_tasks(raw_tasks)
     failed = 0
     for args, revert in tasks:
         cmd = [PYTHON, str(HERE / "zcode_patcher.py"), *args] + (["--revert"] if revert else [])

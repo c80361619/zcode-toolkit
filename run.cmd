@@ -36,12 +36,15 @@ if not defined PY (
     exit /b 2
 )
 
+set "PYTHONIOENCODING=utf-8"
 %PY% "%SCRIPT_DIR%autopilot.py" %*
 set "RC=%ERRORLEVEL%"
 
-rem Pause only when double-clicked (parent cmd line contains this script name),
-rem not when invoked from an existing console.
-echo %cmdcmdline% | find /i "%~nx0" >nul
-if not errorlevel 1 pause
+rem Pause only when double-clicked (no arguments and parent cmd line contains this script name),
+rem not when invoked from an existing console or scripted with arguments.
+if "%~1"=="" (
+    echo %cmdcmdline% | find /i "%~nx0" >nul
+    if not errorlevel 1 pause
+)
 
 exit /b %RC%
