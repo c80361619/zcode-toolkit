@@ -166,18 +166,29 @@ def _save_wants(argv: list[str]) -> None:
             key, _, val = a[len("--want="):].partition("=")
             key = key.strip()
             if key in PATCH_ARGS:
-                wants_dict[key] = val.strip().lower() not in ("off", "false", "0", "no")
+                enabled = val.strip().lower() not in ("off", "false", "0", "no")
+                if key == "reasoning_config" and not enabled:
+                    # 思考档位配置关闭为"不托管"语义：绝不记录还原请求
+                    wants_dict.pop(key, None)
+                else:
+                    wants_dict[key] = enabled
     if wants_dict:
         try:
             import json
             WANT_FILE.write_text(json.dumps(wants_dict, ensure_ascii=False), encoding="utf-8")
         except Exception:
             pass
+    elif WANT_FILE.is_file():
+        try:
+            WANT_FILE.unlink(missing_ok=True)
+        except Exception:
+            pass
 
 
 def parse_wants(argv: list[str]):
     """解析 sync.py 传入的 --want=<key>=on|off 或 WANT_FILE。
-    返回 [(args, revert), ...]；没有任何 --want 时返回 None（走 DEFAULT_TASKS）。"""
+    返回 [(args, revert), ...]；没有任何 --want 输入时返回 None（走 DEFAULT_TASKS）。"""
+    has_explicit_input = any(a.startswith("--want=") for a in argv) or WANT_FILE.is_file()
     merged_wants = {}
     if WANT_FILE.is_file():
         try:
@@ -192,12 +203,15 @@ def parse_wants(argv: list[str]):
             if key in PATCH_ARGS:
                 merged_wants[key] = val.strip().lower() not in ("off", "false", "0", "no")
 
-    if not merged_wants:
+    if not has_explicit_input and not merged_wants:
         return None
     tasks = []
     for key, enabled in merged_wants.items():
+        if key == "reasoning_config" and not enabled:
+            # 思考档位配置关闭为"不托管"语义：绝不执行 revert，避免覆盖客户端文件并导致重启死循环
+            continue
         tasks.append((PATCH_ARGS[key], not enabled))
-    return tasks or None
+    return tasks
 
 
 def batch_tasks(tasks: list[tuple[list[str], bool]]) -> list[tuple[list[str], bool]]:
@@ -259,6 +273,13 @@ def main() -> int:
         pass
     _save_wants(sys.argv[1:])
 
+    # 预检：如果明确指定了需求但过滤后无待办任务（如仅 reasoning_config=off），直接退出
+    early_tasks = parse_wants(sys.argv[1:])
+    if early_tasks is not None and not early_tasks:
+        log("没有待应用的补丁任务，看护退出，不进行等待与重启")
+        _cleanup_singletons(cur_pid)
+        return 0
+
     log(f"看护启动，等待 ZCode 退出 (PID {cur_pid})…")
     waited = 0
     while zcode_running():
@@ -272,6 +293,10 @@ def main() -> int:
     raw_tasks = parse_wants(sys.argv[1:])
     if raw_tasks is None:
         raw_tasks = [(args, False) for args in DEFAULT_TASKS]
+    if not raw_tasks:
+        log("ZCode 已退出，但检查后无有效补丁任务需要执行，看护完成，不重启 ZCode")
+        _cleanup_singletons(cur_pid)
+        return 0
     desc = "、".join(("还原 " if rev else "应用 ") + (" ".join(a) or "内核补丁") for a, rev in raw_tasks)
     log(f"ZCode 已退出（等待 {waited}s），开始处理：{desc}")
 

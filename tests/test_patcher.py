@@ -2603,6 +2603,52 @@ class TestAutoInject(unittest.TestCase):
         self.assertEqual(batched_core[0], (["--tps-footer"], False))
         self.assertEqual(batched_core[1], ([], False))
 
+    def test_reasoning_config_off_does_not_revert_or_trigger_watchdog(self):
+        """Issue #5：思考档位配置关闭时语义为不托管，绝不主动还原 provider_config.json。
+
+        即使状态检查显示 on/stale，也绝对不执行 revert，不调度看护，防死循环重启。
+        """
+        orig = self._resolve_only({"reasoning_config": False})
+        try:
+            with patcher_stubbed(self.sync,
+                                 {("--reasoning-config",): "on"},
+                                 {("--reasoning-config",): "ok"}) as calls:
+                summary = self.sync.run_sync(echo=False)
+        finally:
+            self.sync.read_options, self.sync.declared_defaults = orig
+        self.assertEqual(calls, [], "关闭 reasoning_config 时应完全跳过，不得调用 patcher 或看护")
+        self.assertNotIn("已写入", summary)
+        self.assertNotIn("ZCode 退出时写入", summary)
+        self.assertNotIn("未处理", summary)
+
+    def test_apply_after_exit_ignores_reasoning_config_off_and_does_not_restart(self):
+        """Issue #5：看护进程收到 reasoning_config=off 时绝不执行 revert，无任务时直接退出。"""
+        import apply_after_exit as aae
+        orig_want = aae.WANT_FILE
+        fake_want = self._d / "_fake_watchdog.want"
+        aae.WANT_FILE = fake_want
+        try:
+            # 1. 单独 reasoning_config=off 应返回空任务列表，而不是 fallback 到 DEFAULT_TASKS
+            tasks = aae.parse_wants(["--want=reasoning_config=off"])
+            self.assertEqual(tasks, [], "单项 reasoning_config=off 应解析为空任务列表")
+
+            # 2. 混合任务应只保留其他开关
+            mixed = aae.parse_wants(["--want=reasoning_config=off", "--want=model_width=on"])
+            self.assertEqual(mixed, [(["--model-width"], False)])
+
+            # 3. 默认无参数且无 want 文件仍走 DEFAULT_TASKS（计划任务场景兼容）
+            default_res = aae.parse_wants([])
+            self.assertIsNone(default_res)
+
+            # 4. _save_wants 绝不保存 reasoning_config=off，若已有也会被清除
+            fake_want.write_text(json.dumps({"reasoning_config": True, "model_width": True}), encoding="utf-8")
+            aae._save_wants(["--want=reasoning_config=off"])
+            saved = json.loads(fake_want.read_text(encoding="utf-8"))
+            self.assertNotIn("reasoning_config", saved)
+            self.assertTrue(saved.get("model_width"))
+        finally:
+            aae.WANT_FILE = orig_want
+
     # ------------------------------------------------------ 会话提示（可见性）
 
     def test_notice_is_a_schema_valid_hook_output(self):

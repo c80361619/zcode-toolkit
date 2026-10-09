@@ -1,6 +1,6 @@
 {
   "name": "zcode-tokenspeed",
-  "version": "0.6.15",
+  "version": "0.6.16",
   "description": "ZCode 桌面客户端全方位原生体验增强套件：TPS 实时状态栏、思考强度悬浮滑条、提示词多模型智能润色、用量图表去截断、模型浮窗加宽与设置页模型拉取。内置客户端升级自动感知与无感自愈看护，全量幂等、安全可还原，支持按需逐项开关。",
   "author": {
     "name": "c80361619"
@@ -11,7 +11,7 @@
     "reasoning_config": {
       "type": "boolean",
       "title": "思考档位配置（3.14+）",
-      "description": "把各模型已配的档位写进 provider_config.json 的 optionSpecs.reasoningLevel，界面档位列表与请求体参数都由它下发。3.14 起用这个，不需要内核补丁；界面手动配置过的模型会自动跳过。默认开启；会在你完全退出 ZCode 时写入，下次启动可见。",
+      "description": "把各模型已配的档位写进 provider_config.json 的 optionSpecs.reasoningLevel，界面档位列表与请求体参数都由它下发。3.14 起用这个，不需要内核补丁；界面手动配置过的模型会自动跳过。默认开启；退出 ZCode 时自动同步；关闭时为不托管状态（停止自动同步，不主动还原已有配置，避免与客户端回写冲突）。",
       "default": true
     },
     "usage_chart": {

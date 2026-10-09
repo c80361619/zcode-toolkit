@@ -378,6 +378,10 @@ def run_patcher(args, revert: bool) -> str:
 
 def start_watchdog(wanted: dict) -> None:
     """启动退出后看护：等 ZCode 退出 → 应用重打包级补丁。"""
+    # 过滤掉 reasoning_config 关闭项（不托管语义，绝不调度看护）
+    wanted = {k: v for k, v in wanted.items() if not (k == "reasoning_config" and not v)}
+    if not wanted:
+        return
     want_file = HERE / "_watchdog.want"
     pid_file = HERE / "_watchdog.pid"
     try:
@@ -454,6 +458,10 @@ def run_sync(echo: bool = False) -> str:
         if key not in wanted:
             continue
         want = wanted[key]
+        if key == "reasoning_config" and not want:
+            # 「思考档位配置」关闭时语义为"不托管"：
+            # 不主动写入，绝不主动还原 provider_config.json（客户端会自行写回，还原注定失效且会触发看护无限重启死循环）。
+            continue
         state = check_state(args)
         if state == "na":
             skipped.append(key)          # 本版本不需要这个补丁（如 3.14+ 的内核补丁）
