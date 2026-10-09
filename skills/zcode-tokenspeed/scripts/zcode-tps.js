@@ -691,13 +691,14 @@
         dot.style.color = "#4ade80";
         if (s.streaming) dot.style.textShadow = "0 0 6px rgba(74,222,128,.8)";
         pill.appendChild(dot);
-        // 段布局:本轮即时指标(g0:首 token/tok/s/out)+ 会话累计(g1:轮/输入/命中+命中率/累出)。
+        // 段布局:本轮即时指标(g0:首 token/tok/s)+ 会话累计(g1:轮/总用/输入/命中+命中率/累出)。
         // 组间用竖线分隔,组内用 · ;不显示时间(用户不需要)
         segs = [];
         if (s.ttft != null && s.ttft >= 0) segs.push({ p: 1, g: 0, nodes: [span("首 token "), span(fmtLat(s.ttft), "VALUE")] });
         if (s.tps != null) segs.push({ p: 2, g: 0, nodes: [span(fmtTps(s.tps) + " tok/s", "ACCENT")] });
-        if (s.out > 0) segs.push({ p: 3, g: 0, nodes: [span("out "), span(fmtTok(s.out), "VALUE")] });
         if (agg.rounds > 0) segs.push({ p: 4, g: 1, nodes: [span("第 " + agg.rounds + " 轮")] });
+        const totalTok = (agg.input || 0) + (agg.output || 0);
+        if (totalTok > 0) segs.push({ p: 3, g: 1, nodes: [span("总用 "), span(fmtTok(totalTok), "VALUE")] });
         if (agg.input > 0) {
           const nodes = [span("输入 "), span(fmtTok(agg.input), "VALUE")];
           if (agg.cache > 0) {

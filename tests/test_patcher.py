@@ -1653,6 +1653,12 @@ class TestTpsSidePaneIsolation(unittest.TestCase):
         self.assertIn("isInsideSidePane(row)", self.src)
         self.assertIn("isInsideSidePane(sc)", self.src)
 
+    def test_tps_bar_removes_out_and_shows_session_total_tokens(self):
+        """TPS 状态栏必须去除本轮单轮 out，替换为本次会话已使用的总 Token（总用 xx）。"""
+        self.assertNotIn('span("out ")', self.src, "即时指标中不得再包含单轮 out 显示")
+        self.assertIn('span("总用 ")', self.src, "会话累计中必须包含会话总用量")
+        self.assertIn('fmtTok(totalTok)', self.src, "总用量必须格式化输出")
+
 
 class TestDoctor(unittest.TestCase):
     """doctor.py 是「插件装了没生效」时的第一入口。它靠一批常量去定位安装目录、
