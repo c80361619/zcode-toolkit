@@ -51,3 +51,4 @@ NVIDIA Corporation/
 _smoke/
 .playwright-mcp/
 slider-panel-*.png
+.dsh-memory/

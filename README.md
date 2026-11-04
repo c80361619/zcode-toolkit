@@ -1,7 +1,7 @@
 # zcode-tokenspeed · ZCode 客户端一站式原生增强套件
 
 <p align="left">
-  <a href="https://github.com/c80361619/zcode-toolkit/releases"><img src="https://img.shields.io/badge/version-0.6.22-blue.svg?style=flat-square" alt="Version"></a>
+  <a href="https://github.com/c80361619/zcode-toolkit/releases"><img src="https://img.shields.io/badge/version-0.6.23-blue.svg?style=flat-square" alt="Version"></a>
   <img src="https://img.shields.io/badge/python-3.10+-3776AB.svg?style=flat-square&logo=python&logoColor=white" alt="Python">
   <img src="https://img.shields.io/badge/dependencies-0%20(std%20only)-success.svg?style=flat-square" alt="Dependencies">
   <img src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS%20%7C%20Linux-lightgrey.svg?style=flat-square" alt="Platform">
@@ -10,10 +10,9 @@
 
 为 ZCode 桌面客户端补齐极致原生体验与生产力增强：
 - 📊 **实时 TPS 与性能状态栏**：首 Token 延迟、tok/s 生成速度、Token 统计与会话命中率常驻展示。
-- 🎚️ **思考强度悬浮滑条**：免去繁琐配置，直接在界面流畅拖拽调节 Reasoning Effort，原生即时生效。
 - ✨ **提示词智能增强**：输入框旁一键重写润色草稿；**右键自由选择**润色所用模型，支持一键恢复。
 - 📈 **用量图表全量展开**：破除官方 Top 5/6 截断限制，全量展示所有模型的调用趋势与占比。
-- 🔍 **模型选择浮窗加宽**：选择框 192px 扩大至 320px，长模型名完整展示不再被省略号截断。
+- ⚡ **设置页模型自动拉取**：设置页一键获取供应商可用模型，批量同步写入配置。
 - ⚡ **一键模型同步**：设置页一键获取供应商 `/models` 模型列表，勾选即刻自动建条目并写入。
 - 🛡️ **无感自愈看护（0.6.11 新特性）**：自动感知客户端与插件升级，后台单例看护静默守护，**彻底解决“客户端一升级补丁就失效”！**
 
@@ -46,13 +45,9 @@
 |:---:|:---|:---|:---|
 | 🛡️ | **升级自动自愈** | 动态监控客户端与插件版本，升级后自动感知并调度看护静默修复 | 状态监控器 |
 | 📊 | **实时 TPS 状态栏** | 输入框常驻：本轮指标（首 token / tok/s / out）+ 会话累计，右键自由切换位置 | `app.asar` 注入脚本 |
-| 🎚️ | **思考强度滑条** | 工具栏「思考 · 档名」入口，悬浮拖拽条吸附微调，主题自适应，原生链路即时生效 | `app.asar` 注入脚本 |
 | ✨ | **提示词增强润色** | 输入框旁「增强提示词」按钮，右键支持按供应商自选润色模型，持久化且免重启 | `app.asar` 注入脚本 + IPC |
 | 📈 | **用量图表去截断** | 「设置 → 用量」趋势图与饼图不再被 Top 5 / Top 6 截断，全量展示所有模型 | `app.asar` 渲染层 |
-| 🔍 | **模型弹窗加宽** | 模型下拉列表宽度由 192px 扩展至 320px，超长模型名完整展示 | `app.asar` 主 bundle |
 | ⚡ | **设置页模型拉取** | 设置页新增「⚡ 自动拉取模型」按钮，自动从供应商同步可用模型并批量写入 | `app.asar` 注入脚本 + IPC |
-| 🧠 | **思考档位原生配置** | 为各模型配置 `provider_config.json` 档位（3.14+ 原生 optionSpecs，无需内核改动） | 用户配置 JSON |
-| ⚙️ | **思考内核补丁（旧版）** | ≤3.11 旧版内核专用兜底方案（3.14+ 自动识别并跳过，安全无侵入） | `zcode.cjs` |
 
 ---
 
@@ -88,9 +83,7 @@ python3 -c "import pathlib,subprocess,sys; p=next(pathlib.Path.home().glob('.zco
 - **左键点击**：根据当前选定模型一键润色重写草稿，支持一键「恢复原文」；
 - **右键点击**：弹出供应商模型列表，可自由指定轻量、快速或专用模型（如 Claude 3.5 Haiku、GPT-4o-mini）专门用于润色，选择后**持久化保存且立即生效**。
 
-### 2. 思考强度悬浮滑条
-- 点击输入框下方工具栏的「思考 · 档位」文字，会弹出平滑拖动条；
-- 拖拽至所需强度（关闭 / 低 / 中 / 高）释放即刻生效，原生联动客户端配置。
+
 
 ---
 

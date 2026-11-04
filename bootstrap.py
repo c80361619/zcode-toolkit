@@ -447,25 +447,6 @@ def step_test(args) -> None:
         raise SystemExit(1)
     ok("回归测试全部通过")
 
-    # 滑条专项冒烟（需要 Node，可选）
-    # 注意：slider_smoke.js 要求把「被测脚本路径」作为第 1 个参数传进来；
-    # 缺参数时它自己会打「用法」提示并退 2（0.6.3 起不再抛裸堆栈）。
-    smoke = TESTS / "slider_smoke.js"
-    target = SCRIPTS / "zcode-thought-slider.js"
-    node = find_node()
-    if smoke.exists() and target.exists() and node:
-        info("tests/slider_smoke.js（滑条最小 DOM 冒烟）")
-        rc, out = run([node, str(smoke), str(target)], check=False, quiet=True)
-        if rc == 0:
-            tail = out.strip().splitlines()
-            ok(f"滑条冒烟通过{('：' + tail[-1]) if tail else ''}")
-        else:
-            warn("滑条冒烟未通过（不影响主流程，但改了滑条脚本时应当关注）。")
-            for line in out.rstrip().splitlines()[-5:]:
-                print(f"    {line}")
-    elif not node:
-        warn("跳过滑条冒烟（未安装 Node）。")
-
 
 def step_status(args) -> None:
     step(STEP_TITLES["status"])

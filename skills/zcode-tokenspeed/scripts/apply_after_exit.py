@@ -128,25 +128,16 @@ def resolve_install() -> tuple[Path | None, Path | None]:
 
 
 # 配置键 -> zcode_patcher.py 参数（与 sync.py 的 PATCHES 一一对应，顺序也保持一致）
-# 漏一个键的后果：`--want=<键>=on` 会被 parse_wants 当「未知开关」忽略，
-# 于是那个开关**开不起来也关不干净**（enhance_prompt 就漏过这一条）。
 PATCH_ARGS = {
-    "reasoning_config": ["--reasoning-config"],
     "usage_chart": ["--usage-chart"],
-    "model_width": ["--model-width"],
     "tps_footer": ["--tps-footer"],
-    "thought_slider": ["--thought-slider"],
     "enhance_prompt": ["--enhance-prompt"],
     "model_puller": ["--model-puller"],
-    "core_patch": [],
 }
-# 未收到 --want 时的默认动作（本地计划任务用）：全量 7 项补丁按序全部应用
+# 未收到 --want 时的默认动作（本地计划任务用）：全量 4 项补丁按序全部应用
 DEFAULT_TASKS = [
-    ["--reasoning-config"],
     ["--usage-chart"],
-    ["--model-width"],
     ["--tps-footer"],
-    ["--thought-slider"],
     ["--enhance-prompt"],
     ["--model-puller"],
 ]
@@ -167,11 +158,7 @@ def _save_wants(argv: list[str]) -> None:
             key = key.strip()
             if key in PATCH_ARGS:
                 enabled = val.strip().lower() not in ("off", "false", "0", "no")
-                if key == "reasoning_config" and not enabled:
-                    # 思考档位配置关闭为"不托管"语义：绝不记录还原请求
-                    wants_dict.pop(key, None)
-                else:
-                    wants_dict[key] = enabled
+                wants_dict[key] = enabled
     if wants_dict:
         try:
             import json
@@ -207,9 +194,6 @@ def parse_wants(argv: list[str]):
         return None
     tasks = []
     for key, enabled in merged_wants.items():
-        if key == "reasoning_config" and not enabled:
-            # 思考档位配置关闭为"不托管"语义：绝不执行 revert，避免覆盖客户端文件并导致重启死循环
-            continue
         tasks.append((PATCH_ARGS[key], not enabled))
     return tasks
 

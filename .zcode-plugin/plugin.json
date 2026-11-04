@@ -1,29 +1,17 @@
 {
   "name": "zcode-tokenspeed",
-  "version": "0.6.22",
-  "description": "ZCode 桌面客户端全方位原生体验增强套件：TPS 实时状态栏、思考强度悬浮滑条、提示词多模型智能润色、用量图表去截断、模型浮窗加宽与设置页模型拉取。内置客户端升级自动感知与无感自愈看护，全量幂等、安全可还原，支持按需逐项开关。",
+  "version": "0.6.23",
+  "description": "ZCode 桌面客户端全方位原生体验增强套件：TPS 实时状态栏、提示词多模型智能润色、用量图表去截断与设置页模型拉取。内置客户端升级自动感知与无感自愈看护，全量幂等、安全可还原，支持按需逐项开关。",
   "author": {
     "name": "c80361619"
   },
   "skills": "./skills",
   "commands": "./commands",
   "userConfig": {
-    "reasoning_config": {
-      "type": "boolean",
-      "title": "思考档位配置（3.14+）",
-      "description": "把各模型已配的档位写进 provider_config.json 的 optionSpecs.reasoningLevel，界面档位列表与请求体参数都由它下发。3.14 起用这个，不需要内核补丁；界面手动配置过的模型会自动跳过。默认开启；退出 ZCode 时自动同步；关闭时为不托管状态（停止自动同步，不主动还原已有配置，避免与客户端回写冲突）。",
-      "default": true
-    },
     "usage_chart": {
       "type": "boolean",
       "title": "用量页去截断",
       "description": "「设置 → 用量」趋势图与饼图全量展示，不再只画 Top 6 / Top 5。默认开启；会在你完全退出 ZCode 时写入，下次启动可见。",
-      "default": true
-    },
-    "model_width": {
-      "type": "boolean",
-      "title": "模型弹窗加宽",
-      "description": "模型选择浮窗 192px → 320px，长模型名不再被截断。默认开启；会在你完全退出 ZCode 时写入，下次启动可见。",
       "default": true
     },
     "tps_footer": {
@@ -38,22 +26,10 @@
       "description": "设置页「⚡️ 自动拉取模型」按钮，勾选即写入配置。默认开启；需要改写 app.asar，会在你完全退出 ZCode 时写入，下次启动可见。",
       "default": true
     },
-    "thought_slider": {
-      "type": "boolean",
-      "title": "思考强度滑条",
-      "description": "工具栏「思考 · 档名」入口，点击弹出吸附拖拽条，拖完即时生效。默认开启；需要改写 app.asar，会在你完全退出 ZCode 时写入，下次启动可见。",
-      "default": true
-    },
     "enhance_prompt": {
       "type": "boolean",
       "title": "增强提示词按钮",
       "description": "输入框旁「增强提示词」按钮：一键把草稿改写得更清晰具体，支持「恢复原文」；在按钮上**右键**可按供应商分组选择用哪个模型润色（选中即持久化，零重启生效）。默认开启；需要改写 app.asar，会在你完全退出 ZCode 时写入，下次启动可见。",
-      "default": true
-    },
-    "core_patch": {
-      "type": "boolean",
-      "title": "思考档位内核补丁（旧版专用）",
-      "description": "仅 ZCode 3.11.2 及更早版本需要。3.14.x 起内核改为原生 optionSpecs 机制，本项会被自动识别并跳过（脚本提示「不适用」），不会误报成已生效。默认开启。",
       "default": true
     }
   }

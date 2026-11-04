@@ -24,7 +24,7 @@ r"""zcode-tokenspeed 安装自检（doctor）——只读，不改任何文件�
   6. hooks/hooks.json 是否存在、命令是否可执行
   7. 钩子到底跑没跑过（_sync.last / _sync.log 心跳与日志）
   7.5 退出后看护有没有真的等到 ZCode 退出（决定补丁到底写没写进去）
-  8. 七项补丁当前在客户端里的实际状态
+  8. 四项补丁当前在客户端里的实际状态
 
 输出末尾给出「结论」，直接指出卡在哪一环、下一步该做什么。
 """
@@ -57,18 +57,15 @@ REPO_NAME = "zcode-toolkit"
 MIN_PY = (3, 10)
 
 PATCH_KEYS = [
-    ("reasoning_config", "思考档位配置"),
     ("usage_chart", "用量页去截断"),
-    ("model_width", "模型弹窗加宽"),
     ("tps_footer", "TPS 状态栏"),
-    ("thought_slider", "思考强度滑条"),
     ("enhance_prompt", "增强提示词"),
     ("model_puller", "模型拉取按钮"),
 ]
-# 「重打包级」= 要改写整个 app.asar（其余几项只改 provider_config.json / 字节级原地覆盖）。
-# 注意：**生效时机上八项没有区别** —— zcode_patcher.py 只要发现 ZCode.exe 在跑就一律拒绝写入，
+# 「重打包级」= 要改写整个 app.asar（其余几项只改字节级原地覆盖）。
+# 注意：zcode_patcher.py 只要发现 ZCode.exe 在跑就一律拒绝写入，
 # 所以都得等退出后由看护写。这个集合只用来区分「改的东西有多重」，不再代表「要不要重启」。
-REPACK_KEYS = {"tps_footer", "thought_slider", "enhance_prompt", "model_puller"}
+REPACK_KEYS = {"tps_footer", "enhance_prompt", "model_puller"}
 
 OK, WARN, BAD, INFO = "  [√]", "  [!]", "  [×]", "  [i]"
 

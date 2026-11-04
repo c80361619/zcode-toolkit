@@ -774,20 +774,6 @@ def step_test(log: Logger, dry_run: bool) -> None:
     m = re.search(r"Ran (\d+) tests?", out)
     log.ok(f"回归测试全部通过{('（' + m.group(1) + ' 个用例）') if m else ''}")
 
-    # --- 滑条冒烟（可选，需 Node + 被测脚本）---
-    smoke = TESTS / "slider_smoke.js"
-    target = SCRIPTS / "zcode-thought-slider.js"
-    node = which("node", "nodejs")
-    if smoke.exists() and target.exists() and node:
-        rc, out = run([node, str(smoke), str(target)], timeout=120)
-        if rc == 0:
-            log.ok(f"滑条冒烟通过：{out.strip().splitlines()[-1] if out.strip() else ''}")
-        else:
-            # 非致命：滑条脚本没动时它也可能因为环境原因失败
-            log.warn("滑条冒烟未通过（非致命，改了滑条脚本时需关注）")
-            log.raw("\n".join(out.rstrip().splitlines()[-5:]))
-    elif node:
-        log.debug("跳过滑条冒烟（缺文件）")
 
 
 def _zcode_running() -> bool:
@@ -849,10 +835,9 @@ def step_deploy(log: Logger, dry_run: bool, *, unattended: bool,
 
         # 看护的 --want 参数与 sync.py 保持同一套键名
         wants = [
-            "--want=reasoning_config=on", "--want=usage_chart=on",
-            "--want=model_width=on", "--want=tps_footer=on",
-            "--want=thought_slider=on", "--want=enhance_prompt=on",
-            "--want=model_puller=on", "--want=core_patch=on",
+            "--want=usage_chart=on",
+            "--want=tps_footer=on", "--want=enhance_prompt=on",
+            "--want=model_puller=on",
         ]
         flags = 0x00000008 | 0x08000000 if os.name == "nt" else 0   # DETACHED|NO_WINDOW
         try:

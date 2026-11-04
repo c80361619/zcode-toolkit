@@ -58,24 +58,11 @@ MARKER = HERE / "_autoinject.done"
 CLIENT_FINGERPRINT = HERE / "_client_fingerprint.json"
 
 # 配置键 -> (zcode_patcher.py 参数, 是否重打包级)
-#
-# **关于「立即写」这条路**：zcode_patcher.py 的运行预检是**全局**的 —— `zcode_running()`
-# 只查 tasklist 里有没有 `ZCode.exe`，与 target 无关；命中就直接 `return 2` 拒绝写入
-# （理由：app.asar 被锁、config.json / provider_config.json 会被客户端回写覆盖）。
-# 而 SessionStart 钩子**必然**在 ZCode 运行中触发，所以标 False 的三项
-# （reasoning_config / usage_chart / model_width）在钩子里永远写不进去 ——
-# 早期版本就是这样：每次装完都报「未处理: xxx(执行失败)」。
-# 现在改成**先试立即写，被拒（refused）就自动转交 apply_after_exit.py**：
-# 桌面端场景退化成「退出时写入」，纯 CLI 场景（没有 ZCode.exe 在跑）仍能即时生效。
 PATCHES = [
-    ("reasoning_config", ["--reasoning-config"], False),   # 3.14+ 档位配置（配置侧原生）
     ("usage_chart", ["--usage-chart"], False),
-    ("model_width", ["--model-width"], False),
     ("tps_footer", ["--tps-footer"], True),
-    ("thought_slider", ["--thought-slider"], True),
     ("enhance_prompt", ["--enhance-prompt"], True),
     ("model_puller", ["--model-puller"], True),
-    ("core_patch", [], False),                             # ≤3.11 内核补丁
 ]
 
 DETACHED_PROCESS = 0x00000008
@@ -378,8 +365,6 @@ def run_patcher(args, revert: bool) -> str:
 
 def start_watchdog(wanted: dict) -> None:
     """启动退出后看护：等 ZCode 退出 → 应用重打包级补丁。"""
-    # 过滤掉 reasoning_config 关闭项（不托管语义，绝不调度看护）
-    wanted = {k: v for k, v in wanted.items() if not (k == "reasoning_config" and not v)}
     if not wanted:
         return
     want_file = HERE / "_watchdog.want"
@@ -458,10 +443,6 @@ def run_sync(echo: bool = False) -> str:
         if key not in wanted:
             continue
         want = wanted[key]
-        if key == "reasoning_config" and not want:
-            # 「思考档位配置」关闭时语义为"不托管"：
-            # 不主动写入，绝不主动还原 provider_config.json（客户端会自行写回，还原注定失效且会触发看护无限重启死循环）。
-            continue
         state = check_state(args)
         if state == "na":
             skipped.append(key)          # 本版本不需要这个补丁（如 3.14+ 的内核补丁）
