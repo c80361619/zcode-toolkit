@@ -2294,6 +2294,23 @@ def _pad_display(text: str, width: int) -> str:
     return text + " " * max(1, width - w)
 
 
+def _auto_prune_stale(asar: Path) -> None:
+    """打补丁时自动静默清理失效归档（.stale-*）与废弃功能残留，防止客户端升级后积累几百兆历史文件。"""
+    try:
+        folder = asar.parent
+        for pat in (f"{asar.name}*.stale-*", f"{asar.name}*.tps-tmp", f"{asar.name}.*.tmp",
+                    f"{asar.name}.slider.*", f"{asar.name}*.slider-patch.json",
+                    f"{asar.name}*.width-patch.json"):
+            for p in folder.glob(pat):
+                if p.is_file():
+                    try:
+                        p.unlink()
+                    except OSError:
+                        pass
+    except Exception:
+        pass
+
+
 def prune_artifacts(asars: list[Path], deep: bool, dry_run: bool = False) -> int:
     """清理补丁产物，返回回收的字节数。
 
@@ -2310,7 +2327,9 @@ def prune_artifacts(asars: list[Path], deep: bool, dry_run: bool = False) -> int
 
     for asar in asars:
         folder = asar.parent
-        collect(folder, (f"{asar.name}*.stale-*", f"{asar.name}*.tps-tmp", f"{asar.name}.*.tmp"))
+        collect(folder, (f"{asar.name}*.stale-*", f"{asar.name}*.tps-tmp", f"{asar.name}.*.tmp",
+                         f"{asar.name}.slider.*", f"{asar.name}*.slider-patch.json",
+                         f"{asar.name}*.width-patch.json"))
         if deep:
             collect(folder, (f"{asar.name}*.bak", f"{asar.name}*.bak.meta.json",
                              f"{asar.name}*-patch.json"))
@@ -2503,6 +2522,10 @@ def main() -> int:
     except SystemExit as e:
         print(e)
         return 1
+    # 预先自动清理失效的历史归档与已废弃功能残留文件，防止升级产生冗余大文件
+    for a in asars:
+        _auto_prune_stale(a)
+
     version = asar_version(asars[0])
     print(f"=== 客户端版本 {version or '未知'} | 目标 {len(asars)} 处 | 模式：{mode} ===")
 
