@@ -1044,6 +1044,14 @@
               `${cleanUrl}/models`,
             ];
             if (cleanUrl.endsWith("/api")) candidates.unshift(`${cleanUrl}/v1/models`);
+            // 兼容带协议前缀的 baseUrl（如 https://api.deepseek.com/anthropic）：
+            // 子路径下通常没有 /models，回退到同域名根路径再试。
+            try {
+              const origin = new URL(cleanUrl).origin;
+              for (const rootUrl of [`${origin}/v1/models`, `${origin}/models`]) {
+                if (!candidates.includes(rootUrl)) candidates.push(rootUrl);
+              }
+            } catch (e) {}
 
             for (const u of candidates) {
               try {

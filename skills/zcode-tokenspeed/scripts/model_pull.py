@@ -33,6 +33,7 @@ import shutil
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
@@ -146,6 +147,17 @@ def fetch_models_from_api(base_url: str, api_key: str = "", timeout: int = 10):
         candidates.append(f"{base_url}/models")
     if "/api" in base_url and not base_url.endswith("/models"):
         candidates.append(f"{base_url}/v1/models")
+    # 兼容带协议前缀的 baseUrl（如 https://api.deepseek.com/anthropic）：
+    # 子路径下通常没有 /models，回退到同域名根路径再试。
+    try:
+        parts = urllib.parse.urlsplit(base_url)
+        if parts.scheme and parts.netloc:
+            origin = f"{parts.scheme}://{parts.netloc}"
+            for candidate in (f"{origin}/v1/models", f"{origin}/models"):
+                if candidate not in candidates:
+                    candidates.append(candidate)
+    except Exception:
+        pass
 
     headers = {"User-Agent": "ZCode", "Accept": "application/json"}
     if api_key:

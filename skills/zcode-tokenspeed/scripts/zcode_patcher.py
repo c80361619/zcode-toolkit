@@ -1071,6 +1071,9 @@ catch(n){return{success:!1,error:String(n)}}});
         'if(u.endsWith("/v1")){cs.push(u+"/models");cs.push(u.replace(/\\/v1$/,"")+"/models")}'
         'else{cs.push(u+"/v1/models");cs.push(u+"/models")}'
         'if(u.endsWith("/api"))cs.unshift(u+"/v1/models");'
+        # 兼容带协议前缀的 baseUrl（如 https://api.deepseek.com/anthropic）：
+        # 子路径下通常没有 /models，回退到同域名根路径再试。
+        'try{let _o=new URL(u),_b=_o.origin;for(let _q of [_b+"/v1/models",_b+"/models"]){if(cs.indexOf(_q)<0)cs.push(_q)}}catch(e){}'
         'for(let cur of cs){'
         'try{let res=await new Promise(resolve=>{'
         'let mod=cur.startsWith("https:")?ht:hh;'
